@@ -8,7 +8,7 @@ use enum_map::EnumMap;
 
 use crate::game::{Action, Game, PlayState};
 use crate::grid::Player;
-use crate::input::{InputState, MetaInput, TouchGesture};
+use crate::input::{InputState, MetaInput, PlayerInput, TouchGesture};
 use crate::level_stack::LevelStack;
 use crate::levels;
 use crate::render::progress_buttons::ExportOverlay;
@@ -194,52 +194,22 @@ impl App {
         MetaInputOutcome::Handled
     }
 
-    fn handle_button_action(&mut self, action: ButtonAction) {
-        match action {
-            ButtonAction::Reset => {
-                assert_eq!(
-                    self.handle_meta_input(MetaInput::Restart),
-                    MetaInputOutcome::Handled
-                );
-            }
-            ButtonAction::Undo => {
-                assert_eq!(
-                    self.handle_meta_input(MetaInput::Undo),
-                    MetaInputOutcome::Handled
-                );
-            }
-            ButtonAction::Exit => {
-                assert_eq!(
-                    self.handle_meta_input(MetaInput::Exit),
-                    MetaInputOutcome::Handled
-                );
-            }
-            ButtonAction::Stall => {
-                // UI stall button acts as P1 non-synced stall
-                if self.game.state.play_state() == PlayState::Playing {
-                    self.pending[Player::Player1] = Some(PendingAction {
-                        action: Action::Stall,
-                        synced: false,
-                        fresh: true,
-                    });
-                }
-            }
-        }
+    /// Hit-test a tap/click against the on-screen button bar.
+    fn button_at(&self, pos: Vec2) -> Option<ButtonAction> {
+        let is_playing = self.game.state.play_state() == PlayState::Playing;
+        button_at_position(
+            pos,
+            &self.ui_state(),
+            is_playing,
+            self.input_hints(),
+            button_bar_y(),
+            self.sprites.font(),
+        )
     }
 
+    /// Handle a tap/click that didn't hit a button-bar button.
     fn handle_tap_or_click(&mut self, pos: Vec2) {
-        let hints = self.input_hints();
-        let ui = self.ui_state();
-
         let play_state = self.game.state.play_state();
-        let is_playing = play_state == PlayState::Playing;
-        let bar_y = button_bar_y();
-        if let Some(action) =
-            button_at_position(pos, &ui, is_playing, hints, bar_y, self.sprites.font())
-        {
-            self.handle_button_action(action);
-            return;
-        }
 
         // Email Solution button on win screen (WASM only)
         #[cfg(target_arch = "wasm32")]
@@ -424,17 +394,64 @@ impl App {
                 self.confirm_dialog = ConfirmDialog::None;
             }
         } else {
-            // Poll meta inputs
-            for action in self.input.poll_meta_inputs(&self.gamepad, dt) {
+            // Touch/mouse: swipes and button-bar taps feed the same meta/player
+            // input streams as the keyboard; other taps are handled per-overlay.
+            let mut swipe = None;
+            let mut tap_pos = None;
+            match self.input.poll_touch() {
+                Some(TouchGesture::Swipe(dir)) => swipe = Some(dir),
+                Some(TouchGesture::Tap(pos)) => tap_pos = Some(pos),
+                None => tap_pos = self.input.poll_mouse_click(),
+            }
+            let tapped_button = tap_pos.and_then(|pos| self.button_at(pos));
+
+            let mut meta_inputs = self.input.poll_meta_inputs(&self.gamepad, dt);
+            match tapped_button {
+                Some(ButtonAction::Reset) => meta_inputs.push(MetaInput::Restart),
+                Some(ButtonAction::Undo) => meta_inputs.push(MetaInput::Undo),
+                Some(ButtonAction::Exit) => meta_inputs.push(MetaInput::Exit),
+                // Like Space: enter a portal if a player is standing on one
+                Some(ButtonAction::Stall) => meta_inputs.extend([
+                    MetaInput::Confirm(Player::Player1),
+                    MetaInput::Confirm(Player::Player2),
+                ]),
+                None => {}
+            }
+
+            let mut changed_level = false;
+            for action in meta_inputs {
                 match self.handle_meta_input(action) {
                     MetaInputOutcome::Handled => {}
-                    MetaInputOutcome::ChangedLevel => break,
+                    MetaInputOutcome::ChangedLevel => {
+                        changed_level = true;
+                        break;
+                    }
                 }
             }
 
             // Poll per-player actions
             if self.game.state.play_state() == PlayState::Playing {
-                let player_actions = self.input.poll_player_actions(&self.gamepad, dt);
+                let mut player_actions = self.input.poll_player_actions(&self.gamepad, dt);
+                if !changed_level {
+                    if let Some(dir) = swipe {
+                        player_actions[Player::Player1] = Some(PlayerInput {
+                            action: Action::Move(dir),
+                            synced: false,
+                            fresh: true,
+                        });
+                    }
+                    // Like Space: stall any player without a move this frame
+                    if matches!(tapped_button, Some(ButtonAction::Stall)) {
+                        let stall = PlayerInput {
+                            action: Action::Stall,
+                            synced: false,
+                            fresh: true,
+                        };
+                        for (_, action) in player_actions.iter_mut() {
+                            *action = action.or(Some(stall));
+                        }
+                    }
+                }
                 let player_count = self.game.state.player_count();
                 for (player, player_action) in player_actions.iter().take(player_count) {
                     if let Some(input) = player_action {
@@ -451,23 +468,10 @@ impl App {
                 }
             }
 
-            // Touch gestures: swipe → P1 non-synced move, tap → button/overlay
-            if let Some(gesture) = self.input.poll_touch() {
-                match gesture {
-                    TouchGesture::Swipe(dir) => {
-                        if self.game.state.play_state() == PlayState::Playing {
-                            self.pending[Player::Player1] = Some(PendingAction {
-                                action: Action::Move(dir),
-                                synced: false,
-                                fresh: true,
-                            });
-                        }
-                    }
-                    TouchGesture::Tap(pos) => self.handle_tap_or_click(pos),
-                }
-            }
-
-            if let Some(pos) = self.input.poll_mouse_click() {
+            if !changed_level
+                && tapped_button.is_none()
+                && let Some(pos) = tap_pos
+            {
                 self.handle_tap_or_click(pos);
             }
 
