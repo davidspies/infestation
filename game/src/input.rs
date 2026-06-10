@@ -1,4 +1,6 @@
 use enum_map::{Enum, EnumMap};
+use macroquad::input::utils::{register_input_subscriber, repeat_all_miniquad_input};
+use macroquad::miniquad;
 use macroquad::prelude::*;
 use quad_gamepad::{GamepadAxis, GamepadButton, GamepadContext};
 
@@ -84,6 +86,36 @@ pub(crate) enum TouchGesture {
     Tap(Vec2),
 }
 
+/// A raw touch event replayed from miniquad.
+struct RawTouch {
+    id: u64,
+    phase: miniquad::TouchPhase,
+    position: Vec2,
+}
+
+/// Collects raw touch events via miniquad's input subscriber. Unlike
+/// `macroquad::input::touches()`, which coalesces events per finger per frame
+/// (losing the Started phase when a fast swipe's start and move/end land in
+/// the same frame), this sees every event.
+#[derive(Default)]
+struct TouchEventCollector {
+    events: Vec<RawTouch>,
+}
+
+impl miniquad::EventHandler for TouchEventCollector {
+    fn update(&mut self) {}
+
+    fn draw(&mut self) {}
+
+    fn touch_event(&mut self, phase: miniquad::TouchPhase, id: u64, x: f32, y: f32) {
+        self.events.push(RawTouch {
+            id,
+            phase,
+            position: Vec2::new(x, y),
+        });
+    }
+}
+
 /// Tracks held state for input repeat and touch gesture detection.
 pub(crate) struct InputState {
     /// Per-source directional held timers: [arrows, WASD, gamepad0, gamepad1][dir].
@@ -99,6 +131,7 @@ pub(crate) struct InputState {
     stick_active: EnumMap<Gamepad, EnumMap<Dir4, bool>>,
     touch_start: Option<(u64, Vec2)>,
     touch_handled_this_frame: bool,
+    touch_subscriber: usize,
 }
 
 impl InputState {
@@ -112,6 +145,7 @@ impl InputState {
             stick_active: EnumMap::default(),
             touch_start: None,
             touch_handled_this_frame: false,
+            touch_subscriber: register_input_subscriber(),
         }
     }
 
@@ -312,31 +346,37 @@ impl InputState {
     pub(crate) fn poll_touch(&mut self) -> Option<TouchGesture> {
         self.touch_handled_this_frame = false;
 
-        for touch in touches() {
+        let mut collector = TouchEventCollector::default();
+        repeat_all_miniquad_input(&mut collector, self.touch_subscriber);
+
+        let mut gesture = None;
+        for touch in collector.events {
             match touch.phase {
-                TouchPhase::Started => {
+                miniquad::TouchPhase::Started => {
                     self.touch_start = Some((touch.id, touch.position));
                 }
-                TouchPhase::Ended | TouchPhase::Cancelled => {
-                    if let Some((start_id, start_pos)) = self.touch_start.take() {
-                        if start_id != touch.id {
-                            continue;
-                        }
-                        self.touch_handled_this_frame = true;
-                        let delta = touch.position - start_pos;
-
-                        return Some(if delta.length() >= SWIPE_THRESHOLD {
-                            TouchGesture::Swipe(swipe_to_direction(delta))
-                        } else {
-                            TouchGesture::Tap(start_pos)
-                        });
+                miniquad::TouchPhase::Ended | miniquad::TouchPhase::Cancelled => {
+                    let Some((start_id, start_pos)) = self.touch_start else {
+                        continue;
+                    };
+                    if start_id != touch.id {
+                        continue;
                     }
+                    self.touch_start = None;
+                    self.touch_handled_this_frame = true;
+                    let delta = touch.position - start_pos;
+
+                    gesture = Some(if delta.length() >= SWIPE_THRESHOLD {
+                        TouchGesture::Swipe(swipe_to_direction(delta))
+                    } else {
+                        TouchGesture::Tap(start_pos)
+                    });
                 }
-                _ => {}
+                miniquad::TouchPhase::Moved => {}
             }
         }
 
-        None
+        gesture
     }
 
     /// Poll mouse click. Returns click position if clicked and touch isn't active.
