@@ -94,7 +94,7 @@ impl InputHints {
     }
 }
 
-fn draw_cell(cell: Cell, px: f32, py: f32, size: f32, sprites: &Sprites, tint: Color) {
+pub(crate) fn draw_cell(cell: Cell, px: f32, py: f32, size: f32, sprites: &Sprites, tint: Color) {
     match cell {
         Cell::Trigger(n) => {
             // Draw digit centered in cell
@@ -108,15 +108,15 @@ fn draw_cell(cell: Cell, px: f32, py: f32, size: f32, sprites: &Sprites, tint: C
         Cell::Empty => {}
         _ => {
             let texture = match cell {
-                Cell::Player(Player::Player1, dir) => sprites.player(dir),
-                Cell::Player(Player::Player2, dir) => sprites.player2(dir),
-                Cell::Rat(dir) => sprites.rat(dir),
-                Cell::CyborgRat(dir) => sprites.cyborg_rat(dir),
-                Cell::Wall => sprites.wall(),
-                Cell::Plank => sprites.planks(),
-                Cell::Spiderweb => sprites.spiderweb(),
-                Cell::BlackHole => sprites.blackhole(),
-                Cell::Explosive => sprites.explosive(),
+                Cell::Player(Player::Player1, dir) => &sprites.player[dir],
+                Cell::Player(Player::Player2, dir) => &sprites.player2[dir],
+                Cell::Rat(dir) => &sprites.rat[dir],
+                Cell::CyborgRat(dir) => &sprites.cyborg_rat[dir],
+                Cell::Wall => &sprites.wall,
+                Cell::Plank => &sprites.planks,
+                Cell::Spiderweb => &sprites.spiderweb,
+                Cell::BlackHole => &sprites.blackhole,
+                Cell::Explosive => &sprites.explosive,
                 _ => return,
             };
             draw_texture_ex(
@@ -212,7 +212,7 @@ pub(crate) fn render(
     // Draw note indicators (underneath entities)
     for (pos, _) in game.state.grid.notes() {
         draw_texture_ex(
-            sprites.note(),
+            &sprites.note,
             offset_x + pos.x as f32 * cell,
             offset_y + pos.y as f32 * cell,
             WHITE,
@@ -261,7 +261,7 @@ pub(crate) fn render(
             let py = cy - zap_size / 2.0;
 
             draw_texture_ex(
-                sprites.zap(),
+                &sprites.zap,
                 px,
                 py,
                 WHITE,
@@ -284,7 +284,7 @@ pub(crate) fn render(
             let py = cy - explosion_size / 2.0;
 
             draw_texture_ex(
-                sprites.explosion(),
+                &sprites.explosion,
                 px,
                 py,
                 WHITE,
@@ -728,14 +728,14 @@ fn button_rects(
     hints: InputHints,
     bar_y: f32,
     font: &Font,
-) -> [(f32, f32, f32, f32, ButtonAction); 4] {
+) -> [(Rect, ButtonAction); 4] {
     let buttons = button_labels(on_portal, hints);
 
     // 2x2 grid: row 0 = buttons 0,1; row 1 = buttons 2,3
     let row_height = BUTTON_HEIGHT + BUTTON_SPACING;
     let y_start = bar_y + (BUTTON_BAR_HEIGHT - 2.0 * BUTTON_HEIGHT - BUTTON_SPACING) / 2.0;
 
-    let mut rects = [(0.0, 0.0, 0.0, 0.0, ButtonAction::Reset); 4];
+    let mut rects = [(Rect::default(), ButtonAction::Reset); 4];
     for row in 0..2 {
         let row_buttons: Vec<_> = buttons[row * 2..(row + 1) * 2].to_vec();
         let row_width: f32 = row_buttons
@@ -749,7 +749,7 @@ fn button_rects(
 
         for (i, (label, action)) in row_buttons.iter().enumerate() {
             let w = measure_text_f(label, font, 22).width + 20.0;
-            rects[row * 2 + i] = (x, y, w, BUTTON_HEIGHT, *action);
+            rects[row * 2 + i] = (Rect::new(x, y, w, BUTTON_HEIGHT), *action);
             x += w + BUTTON_SPACING;
         }
     }
@@ -784,7 +784,7 @@ fn render_button_bar(ui: &UiState, is_playing: bool, hints: InputHints, bar_y: f
         (ButtonAction::Exit, ui.can_exit),
     ];
 
-    for (x, y, w, h, action) in button_rects(ui.on_portal, hints, bar_y, font) {
+    for (rect, action) in button_rects(ui.on_portal, hints, bar_y, font) {
         let (label, _) = labels.iter().find(|&&(_, a)| a == action).unwrap();
         let enabled = enabled_states
             .iter()
@@ -804,14 +804,21 @@ fn render_button_bar(ui: &UiState, is_playing: bool, hints: InputHints, bar_y: f
             )
         };
 
-        draw_rectangle(x, y, w, h, bg_color);
-        draw_rectangle_lines(x, y, w, h, 1.0, Color::from_rgba(70, 70, 85, 255));
+        draw_rectangle(rect.x, rect.y, rect.w, rect.h, bg_color);
+        draw_rectangle_lines(
+            rect.x,
+            rect.y,
+            rect.w,
+            rect.h,
+            1.0,
+            Color::from_rgba(70, 70, 85, 255),
+        );
 
         let dims = measure_text_f(label, font, 22);
         draw_text_f(
             label,
-            x + (w - dims.width) / 2.0,
-            y + (h + dims.height) / 2.0 - 2.0,
+            rect.x + (rect.w - dims.width) / 2.0,
+            rect.y + (rect.h + dims.height) / 2.0 - 2.0,
             font,
             22,
             text_color,
@@ -828,8 +835,8 @@ pub(crate) fn button_at_position(
     bar_y: f32,
     font: &Font,
 ) -> Option<ButtonAction> {
-    for (bx, by, bw, bh, action) in button_rects(ui.on_portal, hints, bar_y, font) {
-        if pos.x >= bx && pos.x < bx + bw && pos.y >= by && pos.y < by + bh {
+    for (rect, action) in button_rects(ui.on_portal, hints, bar_y, font) {
+        if rect.contains(pos) {
             let enabled = match action {
                 ButtonAction::Reset => ui.can_reset,
                 ButtonAction::Undo => ui.can_undo,

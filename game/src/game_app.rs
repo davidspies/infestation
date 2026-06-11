@@ -120,9 +120,7 @@ impl App {
                 save_completed_levels(&restored.state.completed_levels);
             }
             self.game = restored;
-            self.input.reset();
-            self.pending = EnumMap::default();
-            self.clear_paths();
+            self.reset_input();
         }
     }
 
@@ -130,6 +128,13 @@ impl App {
     fn clear_paths(&mut self) {
         self.drag = None;
         self.paths = EnumMap::default();
+    }
+
+    /// Reset all transient input: held keys, buffered actions, and paths.
+    fn reset_input(&mut self) {
+        self.input.reset();
+        self.pending = EnumMap::default();
+        self.clear_paths();
     }
 
     fn handle_progress_action(&mut self, action: crate::render::progress_buttons::ProgressAction) {
@@ -433,9 +438,7 @@ impl App {
             save_completed_levels(&self.game.state.completed_levels);
         }
 
-        self.input.reset();
-        self.pending = EnumMap::default();
-        self.clear_paths();
+        self.reset_input();
     }
 
     fn handle_portal_transition(&mut self) {
@@ -500,9 +503,7 @@ impl App {
                 match self.confirm_dialog {
                     ConfirmDialog::Restart => {
                         self.game.restart();
-                        self.input.reset();
-                        self.pending = EnumMap::default();
-                        self.clear_paths();
+                        self.reset_input();
                     }
                     ConfirmDialog::Exit => {
                         self.exit_level();

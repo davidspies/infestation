@@ -33,7 +33,7 @@ const NUM_SOURCES: usize = 4;
 const ARROW_SYNC: KeyCode = KeyCode::RightShift;
 const WASD_SYNC: KeyCode = KeyCode::LeftShift;
 
-fn arrow_key(dir: Dir4) -> KeyCode {
+pub(crate) fn arrow_key(dir: Dir4) -> KeyCode {
     match dir {
         Dir4::North => KeyCode::Up,
         Dir4::South => KeyCode::Down,
@@ -42,7 +42,7 @@ fn arrow_key(dir: Dir4) -> KeyCode {
     }
 }
 
-fn wasd_key(dir: Dir4) -> KeyCode {
+pub(crate) fn wasd_key(dir: Dir4) -> KeyCode {
     match dir {
         Dir4::North => KeyCode::W,
         Dir4::South => KeyCode::S,

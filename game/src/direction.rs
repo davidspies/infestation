@@ -13,6 +13,10 @@ pub enum Dir4 {
 }
 
 impl Dir4 {
+    pub(crate) fn all() -> [Self; 4] {
+        [Dir4::North, Dir4::South, Dir4::East, Dir4::West]
+    }
+
     pub(crate) fn delta(self) -> PositionDelta {
         match self {
             Dir4::North => PositionDelta::new(0, -1),
@@ -24,9 +28,7 @@ impl Dir4 {
 
     /// The direction of a single-cell step, if the delta is one.
     pub(crate) fn from_delta(delta: PositionDelta) -> Option<Dir4> {
-        [Dir4::North, Dir4::South, Dir4::East, Dir4::West]
-            .into_iter()
-            .find(|dir| dir.delta() == delta)
+        Dir4::all().into_iter().find(|dir| dir.delta() == delta)
     }
 
     pub(crate) fn opposite(self) -> Dir8 {

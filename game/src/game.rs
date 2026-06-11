@@ -196,10 +196,7 @@ impl GameState {
 
     /// Returns the portal destination for a specific player.
     pub(crate) fn player_standing_on_portal(&self, player: Player) -> Option<&str> {
-        self.grid
-            .entries()
-            .find(|(_, cell)| matches!(cell, Cell::Player(p, _) if *p == player))
-            .and_then(|(pos, _)| self.grid.get_portal(pos))
+        self.grid.get_portal(self.player_position(player)?)
     }
 
     /// Returns the portal destination if any player is currently standing on a portal.
@@ -213,18 +210,9 @@ impl GameState {
     /// Priority: if both players are on notes, prefer whichever moved last.
     /// If both moved in sync, prefer P1.
     pub(crate) fn standing_on_note(&self) -> Option<&NoteText> {
-        // Find all players and their notes
-        let p1_note = self
-            .grid
-            .find_entities(|cell| matches!(cell, Cell::Player(Player::Player1, _)))
-            .next()
-            .and_then(|(pos, _)| self.grid.get_note(pos));
-
-        let p2_note = self
-            .grid
-            .find_entities(|cell| matches!(cell, Cell::Player(Player::Player2, _)))
-            .next()
-            .and_then(|(pos, _)| self.grid.get_note(pos));
+        let note_under = |player| self.grid.get_note(self.player_position(player)?);
+        let p1_note = note_under(Player::Player1);
+        let p2_note = note_under(Player::Player2);
 
         match (p1_note, p2_note) {
             (Some(_), Some(_)) => {

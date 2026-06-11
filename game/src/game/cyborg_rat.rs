@@ -110,17 +110,7 @@ impl<G: BorrowMut<Grid>> MoveHandler<G> {
 
         // Unreachable cyborg rats just turn to face the nearest player (by Euclidean)
         for cyborg_pos in unreachable {
-            let nearest = players
-                .iter()
-                .min_by_key(|p| (cyborg_pos.dist_sq(p.pos), !p.moved, p.player))
-                .unwrap();
-            let face_dir = Dir8::from_delta(nearest.pos - cyborg_pos).unwrap();
-            self.begin_move(Moving {
-                cell: Cell::CyborgRat(face_dir),
-                from: cyborg_pos,
-                progress: 1.0,
-                to: cyborg_pos,
-            });
+            self.turn_to_face_nearest(cyborg_pos, players, Cell::CyborgRat);
         }
 
         // Sort reachable cyborg rats
@@ -195,18 +185,8 @@ impl<G: BorrowMut<Grid>> MoveHandler<G> {
                     to: cyborg_pos + dir.delta(),
                 });
             } else {
-                let nearest = players
-                    .iter()
-                    .min_by_key(|p| (cyborg_pos.dist_sq(p.pos), !p.moved, p.player))
-                    .unwrap();
-                let face_dir = Dir8::from_delta(nearest.pos - cyborg_pos).unwrap();
                 // Cyborg rat can't move - turn to face the player
-                self.begin_move(Moving {
-                    cell: Cell::CyborgRat(face_dir),
-                    from: cyborg_pos,
-                    progress: 1.0,
-                    to: cyborg_pos,
-                });
+                self.turn_to_face_nearest(cyborg_pos, players, Cell::CyborgRat);
             }
         }
     }
