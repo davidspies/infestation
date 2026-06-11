@@ -15,7 +15,7 @@ use crate::path::{NextMove, PathDrag, PathFollower};
 use crate::position::Position;
 use crate::render::progress_buttons::ExportOverlay;
 use crate::render::{
-    ButtonAction, ConfirmDialog, InputHints, UiState, button_at_position, button_bar_y,
+    ButtonAction, ConfirmDialog, InputHints, Overlays, UiState, button_at_position, button_bar_y,
     confirm_dialog_hit, render, screen_to_grid,
 };
 use crate::screen_wake;
@@ -326,6 +326,34 @@ impl App {
         drag.chain(following).collect()
     }
 
+    /// Ghosts for explicitly synced (shift-held) preregistered moves: each
+    /// shows the player translucently where it will end up (in place if the
+    /// move is blocked). Momentary pendings from normal keypresses (the 2P
+    /// grace period, animation buffering) don't ghost.
+    fn pending_ghosts(&self) -> Vec<(Position, Cell)> {
+        self.pending
+            .iter()
+            .filter_map(|(player, pending)| {
+                let Some(PendingAction {
+                    action: Action::Move(dir),
+                    synced: true,
+                    ..
+                }) = *pending
+                else {
+                    return None;
+                };
+                let pos = self.game.state.player_position(player)?;
+                let dest = pos + dir.delta();
+                let dest = if self.game.state.grid.at(dest).blocks_player() {
+                    pos
+                } else {
+                    dest
+                };
+                Some((dest, Cell::Player(player, dir)))
+            })
+            .collect()
+    }
+
     /// Advance the grace period timer whenever any pending action exists.
     /// Called every frame regardless of animation state.
     fn advance_pending_timer(&mut self, dt: f32) {
@@ -629,7 +657,10 @@ impl App {
             &ui,
             hints,
             self.confirm_dialog,
-            &self.path_overlays(),
+            &Overlays {
+                paths: self.path_overlays(),
+                ghosts: self.pending_ghosts(),
+            },
         );
         crate::render::progress_buttons::draw_overlay(&self.export_overlay, self.sprites.font());
         self.gamepad.end_frame();

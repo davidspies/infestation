@@ -94,7 +94,7 @@ impl InputHints {
     }
 }
 
-fn draw_cell(cell: Cell, px: f32, py: f32, size: f32, sprites: &Sprites) {
+fn draw_cell(cell: Cell, px: f32, py: f32, size: f32, sprites: &Sprites, tint: Color) {
     match cell {
         Cell::Trigger(n) => {
             // Draw digit centered in cell
@@ -103,7 +103,7 @@ fn draw_cell(cell: Cell, px: f32, py: f32, size: f32, sprites: &Sprites) {
             let dims = measure_text_f(text, sprites.font(), font_size);
             let tx = px + (size - dims.width) / 2.0;
             let ty = py + (size + dims.height) / 2.0;
-            draw_text_f(text, tx, ty, sprites.font(), font_size, WHITE);
+            draw_text_f(text, tx, ty, sprites.font(), font_size, tint);
         }
         Cell::Empty => {}
         _ => {
@@ -123,7 +123,7 @@ fn draw_cell(cell: Cell, px: f32, py: f32, size: f32, sprites: &Sprites) {
                 texture,
                 px,
                 py,
-                WHITE,
+                tint,
                 DrawTextureParams {
                     dest_size: Some(vec2(size, size)),
                     ..Default::default()
@@ -133,6 +133,15 @@ fn draw_cell(cell: Cell, px: f32, py: f32, size: f32, sprites: &Sprites) {
     }
 }
 
+/// Transient previews drawn over the grid: dragged/followed paths and
+/// pending-action ghosts.
+#[derive(Default)]
+pub(crate) struct Overlays {
+    pub(crate) paths: Vec<Vec<Position>>,
+    /// Preregistered moves, shown as translucent entities at their destination.
+    pub(crate) ghosts: Vec<(Position, Cell)>,
+}
+
 pub(crate) fn render(
     game: &Game,
     sprites: &Sprites,
@@ -140,7 +149,7 @@ pub(crate) fn render(
     ui: &UiState,
     hints: InputHints,
     confirm_dialog: ConfirmDialog,
-    paths: &[Vec<Position>],
+    overlays: &Overlays,
 ) {
     let cell = cell_size(game);
     let grid_w = game.grid_width() as f32 * cell;
@@ -224,6 +233,7 @@ pub(crate) fn render(
                 offset_y + pos.y as f32 * cell,
                 cell,
                 sprites,
+                WHITE,
             );
         }
 
@@ -237,6 +247,7 @@ pub(crate) fn render(
                 offset_y + y * cell,
                 cell,
                 sprites,
+                WHITE,
             );
         }
 
@@ -292,12 +303,25 @@ pub(crate) fn render(
                 offset_y + pos.y as f32 * cell,
                 cell,
                 sprites,
+                WHITE,
             );
         }
     }
 
+    // Preregistered moves as translucent ghosts at their destination
+    for &(pos, ghost_cell) in &overlays.ghosts {
+        draw_cell(
+            ghost_cell,
+            offset_x + pos.x as f32 * cell,
+            offset_y + pos.y as f32 * cell,
+            cell,
+            sprites,
+            GHOST_TINT,
+        );
+    }
+
     // Dragged or in-progress player paths
-    for path in paths {
+    for path in &overlays.paths {
         draw_path(path, offset_x, offset_y, cell);
     }
 
@@ -409,6 +433,7 @@ pub(crate) fn render(
 }
 
 const PATH_COLOR: Color = Color::new(1.0, 0.85, 0.3, 0.6);
+const GHOST_TINT: Color = Color::new(1.0, 1.0, 1.0, 0.4);
 
 /// Draw a path overlay as a line through cell centers with a dot at the end.
 fn draw_path(path: &[Position], offset_x: f32, offset_y: f32, cell: f32) {
