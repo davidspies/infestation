@@ -9,7 +9,7 @@ use enum_map::EnumMap;
 use crate::game::{Action, Game, PlayState};
 use crate::grid::{Cell, Player};
 use crate::input::{InputState, MetaInput, PlayerInput, PointerEvent, TouchGesture};
-use crate::level_stack::LevelStack;
+use crate::level_stack::{LevelStack, TOP};
 use crate::levels;
 use crate::path::{NextMove, PathDrag, PathFollower};
 use crate::position::Position;
@@ -70,7 +70,7 @@ impl App {
     pub fn new(sprites: Sprites, level_name: Option<&str>) -> Self {
         screen_wake::request();
 
-        let level_name = level_name.unwrap_or("world");
+        let level_name = level_name.unwrap_or(TOP);
         let mut completed = load_completed_levels();
         let game = load_level(level_name, &mut completed);
         let stack = LevelStack::new(level_name.to_string());

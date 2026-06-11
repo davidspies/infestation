@@ -2,6 +2,8 @@ use std::mem;
 
 use crate::game::{Game, PlayState};
 
+pub(crate) const TOP: &str = "intro";
+
 /// Manages the stack of game states when navigating between levels via portals.
 pub(crate) struct LevelStack {
     stack: Vec<(Game, String)>,
@@ -91,7 +93,7 @@ mod tests {
         assert_eq!(player_pos(&parent_game), Position::new(1, 1));
 
         // Create level stack and enter sublevel
-        let mut stack = LevelStack::new("world".to_string());
+        let mut stack = LevelStack::new(TOP.to_string());
         stack.enter_level(&parent_game, "sublevel".to_string());
 
         // Create sublevel game (not completed - still playing)
@@ -115,7 +117,7 @@ mod tests {
         let pos_on_portal = player_pos(&parent_game);
 
         // Create level stack and enter sublevel
-        let mut stack = LevelStack::new("world".to_string());
+        let mut stack = LevelStack::new(TOP.to_string());
         stack.enter_level(&parent_game, "sublevel".to_string());
 
         // Create sublevel game that's been won
@@ -147,7 +149,7 @@ mod tests {
         let pos_on_portal = player_pos(&parent_game);
 
         // Create level stack and enter sublevel
-        let mut stack = LevelStack::new("world".to_string());
+        let mut stack = LevelStack::new(TOP.to_string());
         stack.enter_level(&parent_game, "sublevel".to_string());
 
         // Create sublevel game with inherited completed_levels (simulates how main.rs works)
