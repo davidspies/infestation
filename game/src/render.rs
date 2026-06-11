@@ -10,8 +10,9 @@ use macroquad::prelude::*;
 use quad_gamepad::ControllerType;
 
 const PADDING: f32 = 4.0;
-const DIALOGUE_HEIGHT: f32 = 160.0;
 const DIALOGUE_PADDING: f32 = 12.0;
+const DIALOGUE_FONT_SIZE: u16 = 26;
+const DIALOGUE_LINE_HEIGHT: f32 = DIALOGUE_FONT_SIZE as f32 * 1.2;
 const BUTTON_BAR_HEIGHT: f32 = 70.0;
 const BUTTON_HEIGHT: f32 = 28.0;
 const BUTTON_SPACING: f32 = 6.0;
@@ -151,10 +152,11 @@ pub(crate) fn render(
     confirm_dialog: ConfirmDialog,
     overlays: &Overlays,
 ) {
-    let cell = cell_size(game);
+    let dialogue_h = dialogue_height(description, sprites.font());
+    let cell = cell_size(game, dialogue_h);
     let grid_w = game.grid_width() as f32 * cell;
     let grid_h = game.grid_height() as f32 * cell;
-    let (offset_x, offset_y) = grid_offset(game);
+    let (offset_x, offset_y) = grid_offset(game, dialogue_h);
 
     clear_background(Color::from_rgba(30, 30, 40, 255));
 
@@ -582,8 +584,8 @@ fn render_dialogue(description: Option<&str>, font: &Font) {
         return;
     };
 
-    let font_size: u16 = 26;
-    let line_height = font_size as f32 * 1.2;
+    let font_size = DIALOGUE_FONT_SIZE;
+    let line_height = DIALOGUE_LINE_HEIGHT;
     let max_width = screen_width() - DIALOGUE_PADDING * 2.0;
 
     // Text with word wrap, preserving explicit newlines
@@ -640,16 +642,27 @@ fn wrap_text(text: &str, font: &Font, font_size: u16, max_width: f32) -> Vec<Str
     lines
 }
 
-fn cell_size(game: &Game) -> f32 {
+/// Height of the dialogue strip for the given text (one line when empty).
+/// The grid layout reserves exactly this much, so the grid resizes while
+/// standing on a note with long text rather than being covered by it.
+pub(crate) fn dialogue_height(description: Option<&str>, font: &Font) -> f32 {
+    let max_width = screen_width() - DIALOGUE_PADDING * 2.0;
+    let lines = description
+        .map_or(1, |text| wrap_text(text, font, DIALOGUE_FONT_SIZE, max_width).len())
+        .max(1);
+    DIALOGUE_PADDING * 2.0 + lines as f32 * DIALOGUE_LINE_HEIGHT
+}
+
+fn cell_size(game: &Game, dialogue_height: f32) -> f32 {
     let width = screen_width();
-    let height = screen_height() - DIALOGUE_HEIGHT - BUTTON_BAR_HEIGHT - BOTTOM_SAFE_AREA;
+    let height = screen_height() - dialogue_height - BUTTON_BAR_HEIGHT - BOTTOM_SAFE_AREA;
     let cell_w = (width - PADDING * 2.0) / game.grid_width() as f32;
     let cell_h = (height - PADDING * 2.0) / game.grid_height() as f32;
     cell_w.min(cell_h)
 }
 
-fn grid_offset(game: &Game) -> (f32, f32) {
-    let cell = cell_size(game);
+fn grid_offset(game: &Game, dialogue_height: f32) -> (f32, f32) {
+    let cell = cell_size(game, dialogue_height);
     let grid_w = game.grid_width() as f32 * cell;
     let offset_x = (screen_width() - grid_w) / 2.0;
     let offset_y = PADDING; // Grid at top
@@ -657,9 +670,9 @@ fn grid_offset(game: &Game) -> (f32, f32) {
 }
 
 /// Convert a screen position to a grid cell, if it's within the grid.
-pub(crate) fn screen_to_grid(game: &Game, pos: Vec2) -> Option<Position> {
-    let cell = cell_size(game);
-    let (offset_x, offset_y) = grid_offset(game);
+pub(crate) fn screen_to_grid(game: &Game, dialogue_height: f32, pos: Vec2) -> Option<Position> {
+    let cell = cell_size(game, dialogue_height);
+    let (offset_x, offset_y) = grid_offset(game, dialogue_height);
     let cell_pos = Position {
         x: ((pos.x - offset_x) / cell).floor() as i32,
         y: ((pos.y - offset_y) / cell).floor() as i32,

@@ -103,6 +103,27 @@ impl App {
         }
     }
 
+    /// Text for the dialogue strip.
+    /// Priority: note text > completed portal name > current level name.
+    fn description(&self) -> Option<String> {
+        let note_text = self
+            .game
+            .state
+            .standing_on_note()
+            .map(|t| t.resolve(self.input_hints(), self.gamepad.connected_count()));
+        note_text
+            .or_else(|| self.game.state.standing_on_completed_portal())
+            .map(String::from)
+            .or_else(|| {
+                levels::get_level(&self.stack.current_level).map(|l| l.display_name.clone())
+            })
+    }
+
+    /// Current height of the dialogue strip, which the grid layout depends on.
+    fn dialogue_height(&self) -> f32 {
+        crate::render::dialogue_height(self.description().as_deref(), self.sprites.font())
+    }
+
     fn ui_state(&self) -> UiState {
         UiState {
             can_reset: self.game.state.history.len() > 1,
@@ -237,7 +258,12 @@ impl App {
         #[cfg(target_arch = "wasm32")]
         if !self.game.is_animating()
             && play_state == PlayState::Won
-            && crate::render::email_button::hit(pos, &self.game, self.sprites.font())
+            && crate::render::email_button::hit(
+                pos,
+                &self.game,
+                self.sprites.font(),
+                self.dialogue_height(),
+            )
         {
             self.email_solution();
             return;
@@ -267,7 +293,7 @@ impl App {
         if self.game.state.play_state() != PlayState::Playing {
             return;
         }
-        let Some(cell) = screen_to_grid(&self.game, pos) else {
+        let Some(cell) = screen_to_grid(&self.game, self.dialogue_height(), pos) else {
             return;
         };
         if let Some((player, _)) = self.game.state.grid.at(cell).as_player() {
@@ -276,12 +302,16 @@ impl App {
     }
 
     fn pointer_moved(&mut self, pos: Vec2) {
-        if let Some(drag) = &mut self.drag
-            && let Some(cell) = screen_to_grid(&self.game, pos)
-        {
+        if self.drag.is_none() {
+            return;
+        }
+        let Some(cell) = screen_to_grid(&self.game, self.dialogue_height(), pos) else {
+            return;
+        };
+        let grid = &self.game.state.grid;
+        if let Some(drag) = &mut self.drag {
             // Only walls are undrawable; anything else (planks included)
             // might be gone by the time the player gets there.
-            let grid = &self.game.state.grid;
             drag.extend_to(cell, |p| grid.at(p) == Cell::Wall);
         }
     }
@@ -638,23 +668,12 @@ impl App {
     fn render(&mut self) {
         let hints = self.input_hints();
         let ui = self.ui_state();
-
-        // Priority: note text > completed portal name > current level name
-        let gamepad_count = self.gamepad.connected_count();
-        let note_text = self
-            .game
-            .state
-            .standing_on_note()
-            .map(|t| t.resolve(hints, gamepad_count));
-        let portal_name = self.game.state.standing_on_completed_portal();
-        let level_name =
-            levels::get_level(&self.stack.current_level).map(|l| l.display_name.as_str());
-        let description = note_text.or(portal_name).or(level_name);
+        let description = self.description();
 
         render(
             &self.game,
             &self.sprites,
-            description,
+            description.as_deref(),
             &ui,
             hints,
             self.confirm_dialog,

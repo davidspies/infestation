@@ -41,13 +41,13 @@ pub(crate) fn draw(grid_center_x: f32, grid_center_y: f32, font: &Font) {
     );
 }
 
-pub(crate) fn hit(pos: Vec2, game: &Game, font: &Font) -> bool {
+pub(crate) fn hit(pos: Vec2, game: &Game, font: &Font, dialogue_height: f32) -> bool {
     if game.state.play_state() != PlayState::Won || game.is_animating() {
         return false;
     }
 
-    let (offset_x, offset_y) = grid_offset(game);
-    let cell = cell_size(game);
+    let (offset_x, offset_y) = grid_offset(game, dialogue_height);
+    let cell = cell_size(game, dialogue_height);
     let grid_w = game.grid_width() as f32 * cell;
     let grid_h = game.grid_height() as f32 * cell;
     let grid_center_x = offset_x + grid_w / 2.0;
