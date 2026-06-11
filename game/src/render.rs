@@ -450,7 +450,7 @@ fn render_confirm_dialog(dialog: ConfirmDialog, hints: InputHints, font: &Font) 
 
     let confirm_hint = match hints {
         InputHints::Keyboard => "Space to confirm, Esc to cancel",
-        InputHints::Touch => "Tap to confirm",
+        InputHints::Touch => "",
         InputHints::Controller(Xbox | Generic) => "A/B to confirm, X/Y to cancel",
         InputHints::Controller(PlayStation) => "✕/○ to confirm, □/△ to cancel",
         InputHints::Controller(Nintendo) => "B/A to confirm, Y/X to cancel",
@@ -482,15 +482,73 @@ fn render_confirm_dialog(dialog: ConfirmDialog, hints: InputHints, font: &Font) 
     );
 
     // Hint
-    let hint_dims = measure_text_f(confirm_hint, font, 28);
-    draw_text_f(
-        confirm_hint,
-        center_x - hint_dims.width / 2.0,
-        center_y + 100.0,
-        font,
-        28,
-        WHITE,
-    );
+    if !confirm_hint.is_empty() {
+        let hint_dims = measure_text_f(confirm_hint, font, 28);
+        draw_text_f(
+            confirm_hint,
+            center_x - hint_dims.width / 2.0,
+            center_y + 100.0,
+            font,
+            28,
+            WHITE,
+        );
+    }
+
+    // Yes/No buttons (tappable/clickable)
+    for button in confirm_buttons() {
+        let rect = button.rect;
+        draw_rectangle(
+            rect.x,
+            rect.y,
+            rect.w,
+            rect.h,
+            Color::from_rgba(50, 50, 60, 255),
+        );
+        draw_rectangle_lines(rect.x, rect.y, rect.w, rect.h, 1.0, Color::from_rgba(70, 70, 85, 255));
+        let dims = measure_text_f(button.label, font, 28);
+        draw_text_f(
+            button.label,
+            rect.x + (rect.w - dims.width) / 2.0,
+            rect.y + (rect.h + dims.height) / 2.0,
+            font,
+            28,
+            Color::from_rgba(220, 220, 230, 255),
+        );
+    }
+}
+
+struct ConfirmButton {
+    rect: Rect,
+    label: &'static str,
+    confirms: bool,
+}
+
+fn confirm_buttons() -> [ConfirmButton; 2] {
+    const WIDTH: f32 = 110.0;
+    const HEIGHT: f32 = 48.0;
+    const GAP: f32 = 30.0;
+    let center_x = screen_width() / 2.0;
+    let y = screen_height() / 2.0 + 130.0;
+    [
+        ConfirmButton {
+            rect: Rect::new(center_x - WIDTH - GAP / 2.0, y, WIDTH, HEIGHT),
+            label: "Yes",
+            confirms: true,
+        },
+        ConfirmButton {
+            rect: Rect::new(center_x + GAP / 2.0, y, WIDTH, HEIGHT),
+            label: "No",
+            confirms: false,
+        },
+    ]
+}
+
+/// Whether a tap on the confirm dialog confirms it, if a button was hit.
+pub(crate) fn confirm_dialog_hit(pos: Vec2) -> Option<bool> {
+    confirm_buttons()
+        .iter()
+        .find(|button| button.rect.contains(pos))
+        .map(|button| button.confirms)
 }
 
 fn render_dialogue(description: Option<&str>, dialogue_y: f32, font: &Font) {

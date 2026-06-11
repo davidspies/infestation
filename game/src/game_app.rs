@@ -15,8 +15,8 @@ use crate::path::{NextMove, PathDrag, PathFollower};
 use crate::position::Position;
 use crate::render::progress_buttons::ExportOverlay;
 use crate::render::{
-    ButtonAction, ConfirmDialog, InputHints, UiState, button_at_position, button_bar_y, render,
-    screen_to_grid,
+    ButtonAction, ConfirmDialog, InputHints, UiState, button_at_position, button_bar_y,
+    confirm_dialog_hit, render, screen_to_grid,
 };
 use crate::screen_wake;
 use crate::sprites::Sprites;
@@ -445,25 +445,30 @@ impl App {
         // Handle confirmation dialog input
         } else if self.confirm_dialog != ConfirmDialog::None {
             let mut should_confirm = false;
+            let mut should_cancel = false;
             for action in self.input.poll_meta_inputs(&self.gamepad, dt) {
                 match action {
                     MetaInput::Confirm(_) => should_confirm = true,
-                    MetaInput::Undo | MetaInput::Exit => {
-                        self.confirm_dialog = ConfirmDialog::None;
-                    }
+                    MetaInput::Undo | MetaInput::Exit => should_cancel = true,
                     _ => {}
                 }
             }
             // Consume player actions during dialog (don't let them queue)
             self.input.poll_player_actions(&self.gamepad, dt);
 
+            // Yes confirms; No or a tap anywhere else cancels
             for event in self.input.poll_pointer() {
-                if matches!(event.gesture(), Some(TouchGesture::Tap(_))) {
-                    should_confirm = true;
+                if let Some(TouchGesture::Tap(pos)) = event.gesture() {
+                    match confirm_dialog_hit(pos) {
+                        Some(true) => should_confirm = true,
+                        Some(false) | None => should_cancel = true,
+                    }
                 }
             }
 
-            if should_confirm {
+            if should_cancel {
+                self.confirm_dialog = ConfirmDialog::None;
+            } else if should_confirm {
                 match self.confirm_dialog {
                     ConfirmDialog::Restart => {
                         self.game.restart();
