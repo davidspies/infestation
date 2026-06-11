@@ -1592,12 +1592,18 @@ impl App {
                     // P1: arrow keys + space; P2: WASD + tab
                     for dir in Dir4::all() {
                         if is_key_pressed(arrow_key(dir)) {
-                            self.editor
-                                .register_action(Player::Player1, Action::Move(dir), synced_p1);
+                            self.editor.register_action(
+                                Player::Player1,
+                                Action::Move(dir),
+                                synced_p1,
+                            );
                         }
                         if is_key_pressed(wasd_key(dir)) {
-                            self.editor
-                                .register_action(Player::Player2, Action::Move(dir), synced_p2);
+                            self.editor.register_action(
+                                Player::Player2,
+                                Action::Move(dir),
+                                synced_p2,
+                            );
                         }
                     }
                     if is_key_pressed(KeyCode::Space) {

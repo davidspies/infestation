@@ -529,7 +529,14 @@ fn render_confirm_dialog(dialog: ConfirmDialog, hints: InputHints, font: &Font) 
             rect.h,
             Color::from_rgba(50, 50, 60, 255),
         );
-        draw_rectangle_lines(rect.x, rect.y, rect.w, rect.h, 1.0, Color::from_rgba(70, 70, 85, 255));
+        draw_rectangle_lines(
+            rect.x,
+            rect.y,
+            rect.w,
+            rect.h,
+            1.0,
+            Color::from_rgba(70, 70, 85, 255),
+        );
         let dims = measure_text_f(button.label, font, 28);
         draw_text_f(
             button.label,
@@ -646,7 +653,9 @@ fn wrap_text(text: &str, font: &Font, font_size: u16, max_width: f32) -> Vec<Str
 pub(crate) fn dialogue_height(description: Option<&str>, font: &Font) -> f32 {
     let max_width = screen_width() - DIALOGUE_PADDING * 2.0;
     let lines = description
-        .map_or(1, |text| wrap_text(text, font, DIALOGUE_FONT_SIZE, max_width).len())
+        .map_or(1, |text| {
+            wrap_text(text, font, DIALOGUE_FONT_SIZE, max_width).len()
+        })
         .max(1);
     DIALOGUE_PADDING * 2.0 + lines as f32 * DIALOGUE_LINE_HEIGHT
 }
