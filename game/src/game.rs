@@ -185,6 +185,15 @@ impl GameState {
         }
     }
 
+    /// Current position of the given player, if it's still on the grid.
+    pub(crate) fn player_position(&self, player: Player) -> Option<Position> {
+        self.grid
+            .find_players()
+            .into_iter()
+            .find(|p| p.player == player)
+            .map(|p| p.pos)
+    }
+
     /// Returns the portal destination for a specific player.
     pub(crate) fn player_standing_on_portal(&self, player: Player) -> Option<&str> {
         self.grid

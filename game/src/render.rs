@@ -4,6 +4,7 @@ pub(crate) mod progress_buttons;
 
 use crate::game::{Game, PlayState};
 use crate::grid::{Cell, Player};
+use crate::position::Position;
 use crate::sprites::Sprites;
 use macroquad::prelude::*;
 use quad_gamepad::ControllerType;
@@ -139,6 +140,7 @@ pub(crate) fn render(
     ui: &UiState,
     hints: InputHints,
     confirm_dialog: ConfirmDialog,
+    paths: &[Vec<Position>],
 ) {
     let cell = cell_size(game);
     let grid_w = game.grid_width() as f32 * cell;
@@ -294,6 +296,11 @@ pub(crate) fn render(
         }
     }
 
+    // Dragged or in-progress player paths
+    for path in paths {
+        draw_path(path, offset_x, offset_y, cell);
+    }
+
     // Grid center for overlay text
     let grid_center_x = offset_x + grid_w / 2.0;
     let grid_center_y = offset_y + grid_h / 2.0;
@@ -398,6 +405,27 @@ pub(crate) fn render(
     // Confirmation dialog on top of everything
     if confirm_dialog != ConfirmDialog::None {
         render_confirm_dialog(confirm_dialog, hints, sprites.font());
+    }
+}
+
+const PATH_COLOR: Color = Color::new(1.0, 0.85, 0.3, 0.6);
+
+/// Draw a path overlay as a line through cell centers with a dot at the end.
+fn draw_path(path: &[Position], offset_x: f32, offset_y: f32, cell: f32) {
+    let center = |pos: Position| {
+        vec2(
+            offset_x + (pos.x as f32 + 0.5) * cell,
+            offset_y + (pos.y as f32 + 0.5) * cell,
+        )
+    };
+    for pair in path.windows(2) {
+        let a = center(pair[0]);
+        let b = center(pair[1]);
+        draw_line(a.x, a.y, b.x, b.y, cell * 0.15, PATH_COLOR);
+    }
+    if let Some(&last) = path.last() {
+        let c = center(last);
+        draw_circle(c.x, c.y, cell * 0.2, PATH_COLOR);
     }
 }
 
@@ -540,6 +568,19 @@ fn grid_offset(game: &Game) -> (f32, f32) {
     let offset_x = (screen_width() - grid_w) / 2.0;
     let offset_y = PADDING; // Grid at top
     (offset_x, offset_y)
+}
+
+/// Convert a screen position to a grid cell, if it's within the grid.
+pub(crate) fn screen_to_grid(game: &Game, pos: Vec2) -> Option<Position> {
+    let cell = cell_size(game);
+    let (offset_x, offset_y) = grid_offset(game);
+    let cell_pos = Position {
+        x: ((pos.x - offset_x) / cell).floor() as i32,
+        y: ((pos.y - offset_y) / cell).floor() as i32,
+    };
+    cell_pos
+        .in_bounds((game.grid_width(), game.grid_height()))
+        .then_some(cell_pos)
 }
 
 fn dialogue_y(game: &Game) -> f32 {

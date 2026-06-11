@@ -7,13 +7,16 @@ use quad_gamepad::GamepadContext;
 use enum_map::EnumMap;
 
 use crate::game::{Action, Game, PlayState};
-use crate::grid::Player;
-use crate::input::{InputState, MetaInput, PlayerInput, TouchGesture};
+use crate::grid::{Cell, Player};
+use crate::input::{InputState, MetaInput, PlayerInput, PointerEvent, TouchGesture};
 use crate::level_stack::LevelStack;
 use crate::levels;
+use crate::path::{NextMove, PathDrag, PathFollower};
+use crate::position::Position;
 use crate::render::progress_buttons::ExportOverlay;
 use crate::render::{
     ButtonAction, ConfirmDialog, InputHints, UiState, button_at_position, button_bar_y, render,
+    screen_to_grid,
 };
 use crate::screen_wake;
 use crate::sprites::Sprites;
@@ -49,6 +52,10 @@ pub struct App {
     gamepad: GamepadContext,
     sprites: Sprites,
     confirm_dialog: ConfirmDialog,
+    /// Path being dragged out with a finger or mouse button held down.
+    drag: Option<PathDrag>,
+    /// Active paths the players are following.
+    paths: EnumMap<Player, Option<PathFollower>>,
     /// Per-player buffered actions (sync or immediate).
     pending: EnumMap<Player, Option<PendingAction>>,
     /// Time elapsed since the first pending action was set, for the 2P grace period.
@@ -74,6 +81,8 @@ impl App {
             gamepad: GamepadContext::new(),
             sprites,
             confirm_dialog: ConfirmDialog::None,
+            drag: None,
+            paths: EnumMap::default(),
             pending: EnumMap::default(),
             pending_timer: 0.0,
             import_pending: false,
@@ -113,7 +122,14 @@ impl App {
             self.game = restored;
             self.input.reset();
             self.pending = EnumMap::default();
+            self.clear_paths();
         }
+    }
+
+    /// Drop the in-progress drag and all paths being followed.
+    fn clear_paths(&mut self) {
+        self.drag = None;
+        self.paths = EnumMap::default();
     }
 
     fn handle_progress_action(&mut self, action: crate::render::progress_buttons::ProgressAction) {
@@ -167,6 +183,7 @@ impl App {
             MetaInput::Undo => {
                 self.game.undo();
                 self.pending = EnumMap::default();
+                self.clear_paths();
             }
             MetaInput::Exit => {
                 self.confirm_dialog = if self.stack.can_exit() {
@@ -236,6 +253,77 @@ impl App {
                 self.pending = EnumMap::default();
             }
         }
+    }
+
+    /// A finger/mouse press: stops any path being followed, and starts a
+    /// path drag if it lands on a player.
+    fn pointer_down(&mut self, pos: Vec2) {
+        self.clear_paths();
+        if self.game.state.play_state() != PlayState::Playing {
+            return;
+        }
+        let Some(cell) = screen_to_grid(&self.game, pos) else {
+            return;
+        };
+        if let Some((player, _)) = self.game.state.grid.at(cell).as_player() {
+            self.drag = Some(PathDrag::new(player, cell));
+        }
+    }
+
+    fn pointer_moved(&mut self, pos: Vec2) {
+        if let Some(drag) = &mut self.drag
+            && let Some(cell) = screen_to_grid(&self.game, pos)
+        {
+            // Only walls are undrawable; anything else (planks included)
+            // might be gone by the time the player gets there.
+            let grid = &self.game.state.grid;
+            drag.extend_to(cell, |p| grid.at(p) == Cell::Wall);
+        }
+    }
+
+    /// Feed the next move from each player's active path into this frame's
+    /// actions. Manual input for a player abandons that player's path, as
+    /// does a wall ahead or the player having strayed off the path.
+    fn feed_path_moves(&mut self, player_actions: &mut EnumMap<Player, Option<PlayerInput>>) {
+        for (player, follower) in self.paths.iter_mut() {
+            let Some(active) = follower else {
+                continue;
+            };
+            if player_actions[player].is_some() {
+                *follower = None;
+                continue;
+            }
+            if self.game.is_animating() || self.pending[player].is_some() {
+                continue;
+            }
+            let next = self
+                .game
+                .state
+                .player_position(player)
+                .map(|pos| (pos, active.next_move(pos)));
+            if let Some((pos, NextMove::Move(dir))) = next
+                && !self.game.state.grid.at(pos + dir.delta()).blocks_player()
+            {
+                player_actions[player] = Some(PlayerInput {
+                    action: Action::Move(dir),
+                    synced: false,
+                    fresh: true,
+                });
+            } else {
+                *follower = None;
+            }
+        }
+    }
+
+    /// Cell paths to draw: the path being dragged out, plus the remaining
+    /// path of each player still following one.
+    fn path_overlays(&self) -> Vec<Vec<Position>> {
+        let drag = self.drag.iter().map(|d| d.cells.clone());
+        let following = self.paths.iter().filter_map(|(player, follower)| {
+            let pos = self.game.state.player_position(player)?;
+            Some(follower.as_ref()?.preview(pos))
+        });
+        drag.chain(following).collect()
     }
 
     /// Advance the grace period timer whenever any pending action exists.
@@ -319,6 +407,7 @@ impl App {
 
         self.input.reset();
         self.pending = EnumMap::default();
+        self.clear_paths();
     }
 
     fn handle_portal_transition(&mut self) {
@@ -348,11 +437,10 @@ impl App {
                 }
             }
             self.input.poll_player_actions(&self.gamepad, dt);
-            if let Some(TouchGesture::Tap(pos)) = self.input.poll_touch() {
-                self.handle_overlay_click(pos);
-            }
-            if let Some(pos) = self.input.poll_mouse_click() {
-                self.handle_overlay_click(pos);
+            for event in self.input.poll_pointer() {
+                if let Some(TouchGesture::Tap(pos)) = event.gesture() {
+                    self.handle_overlay_click(pos);
+                }
             }
         // Handle confirmation dialog input
         } else if self.confirm_dialog != ConfirmDialog::None {
@@ -369,12 +457,11 @@ impl App {
             // Consume player actions during dialog (don't let them queue)
             self.input.poll_player_actions(&self.gamepad, dt);
 
-            if let Some(gesture) = self.input.poll_touch()
-                && matches!(gesture, TouchGesture::Tap(_))
-            {
-                should_confirm = true;
+            for event in self.input.poll_pointer() {
+                if matches!(event.gesture(), Some(TouchGesture::Tap(_))) {
+                    should_confirm = true;
+                }
             }
-            self.input.poll_mouse_click();
 
             if should_confirm {
                 match self.confirm_dialog {
@@ -382,6 +469,7 @@ impl App {
                         self.game.restart();
                         self.input.reset();
                         self.pending = EnumMap::default();
+                        self.clear_paths();
                     }
                     ConfirmDialog::Exit => {
                         self.exit_level();
@@ -394,14 +482,29 @@ impl App {
                 self.confirm_dialog = ConfirmDialog::None;
             }
         } else {
-            // Touch/mouse: swipes and button-bar taps feed the same meta/player
-            // input streams as the keyboard; other taps are handled per-overlay.
+            // Touch/mouse: a drag starting on a player drags out a path for
+            // it to follow; swipes and button-bar taps feed the same
+            // meta/player input streams as the keyboard; other taps are
+            // handled per-overlay.
             let mut swipe = None;
             let mut tap_pos = None;
-            match self.input.poll_touch() {
-                Some(TouchGesture::Swipe(dir)) => swipe = Some(dir),
-                Some(TouchGesture::Tap(pos)) => tap_pos = Some(pos),
-                None => tap_pos = self.input.poll_mouse_click(),
+            for event in self.input.poll_pointer() {
+                match event {
+                    PointerEvent::Down(pos) => self.pointer_down(pos),
+                    PointerEvent::Moved(pos) => self.pointer_moved(pos),
+                    PointerEvent::Up { .. } => {
+                        if let Some(drag) = self.drag.take() {
+                            let player = drag.player;
+                            self.paths[player] = drag.into_follower();
+                        } else {
+                            match event.gesture() {
+                                Some(TouchGesture::Swipe(dir)) => swipe = Some(dir),
+                                Some(TouchGesture::Tap(pos)) => tap_pos = Some(pos),
+                                None => {}
+                            }
+                        }
+                    }
+                }
             }
             let tapped_button = tap_pos.and_then(|pos| self.button_at(pos));
 
@@ -451,6 +554,7 @@ impl App {
                             *action = action.or(Some(stall));
                         }
                     }
+                    self.feed_path_moves(&mut player_actions);
                 }
                 let player_count = self.game.state.player_count();
                 for (player, player_action) in player_actions.iter().take(player_count) {
@@ -520,6 +624,7 @@ impl App {
             &ui,
             hints,
             self.confirm_dialog,
+            &self.path_overlays(),
         );
         crate::render::progress_buttons::draw_overlay(&self.export_overlay, self.sprites.font());
         self.gamepad.end_frame();

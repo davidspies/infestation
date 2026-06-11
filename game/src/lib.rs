@@ -6,6 +6,7 @@ pub(crate) mod level_stack;
 pub(crate) mod levels;
 #[cfg(target_arch = "wasm32")]
 pub(crate) mod open_url;
+pub(crate) mod path;
 pub(crate) mod position;
 pub(crate) mod render;
 pub(crate) mod screen_wake;

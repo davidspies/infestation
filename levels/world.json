@@ -144,7 +144,7 @@
       "text": {
         "controller": "Use the D-pad or left joystick to move",
         "keyboard": "Use the arrow keys to move",
-        "mobile": "Swipe up, down, left, or right to move"
+        "mobile": "Swipe to move, or drag a path from your character to follow it. Tap to stop."
       }
     }
   ]

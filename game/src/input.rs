@@ -86,6 +86,29 @@ pub(crate) enum TouchGesture {
     Tap(Vec2),
 }
 
+/// A pointer (touch or mouse-drag) event.
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum PointerEvent {
+    Down(Vec2),
+    Moved(Vec2),
+    Up { start: Vec2, end: Vec2 },
+}
+
+impl PointerEvent {
+    /// Classify a completed pointer stroke as a tap or a swipe.
+    pub(crate) fn gesture(self) -> Option<TouchGesture> {
+        let PointerEvent::Up { start, end } = self else {
+            return None;
+        };
+        let delta = end - start;
+        Some(if delta.length() >= SWIPE_THRESHOLD {
+            TouchGesture::Swipe(swipe_to_direction(delta))
+        } else {
+            TouchGesture::Tap(start)
+        })
+    }
+}
+
 /// A raw touch event replayed from miniquad.
 struct RawTouch {
     id: u64,
@@ -130,7 +153,7 @@ pub(crate) struct InputState {
     /// Per-gamepad analog stick edge detection.
     stick_active: EnumMap<Gamepad, EnumMap<Dir4, bool>>,
     touch_start: Option<(u64, Vec2)>,
-    touch_handled_this_frame: bool,
+    mouse_start: Option<Vec2>,
     touch_subscriber: usize,
 }
 
@@ -144,7 +167,7 @@ impl InputState {
             held_confirm: EnumMap::default(),
             stick_active: EnumMap::default(),
             touch_start: None,
-            touch_handled_this_frame: false,
+            mouse_start: None,
             touch_subscriber: register_input_subscriber(),
         }
     }
@@ -342,18 +365,30 @@ impl InputState {
         result
     }
 
-    /// Poll touch input for gestures. Call once per frame before poll_mouse_click.
-    pub(crate) fn poll_touch(&mut self) -> Option<TouchGesture> {
-        self.touch_handled_this_frame = false;
-
+    /// Poll touch and mouse input into a unified pointer event stream,
+    /// in frame order. Tracks the first finger only; the mouse acts as a
+    /// pointer only when no touch is involved (touch devices synthesize
+    /// mouse events from touches).
+    pub(crate) fn poll_pointer(&mut self) -> Vec<PointerEvent> {
         let mut collector = TouchEventCollector::default();
         repeat_all_miniquad_input(&mut collector, self.touch_subscriber);
 
-        let mut gesture = None;
+        let touch_seen = !collector.events.is_empty();
+        let mut events = Vec::new();
         for touch in collector.events {
             match touch.phase {
                 miniquad::TouchPhase::Started => {
-                    self.touch_start = Some((touch.id, touch.position));
+                    if self.touch_start.is_none() {
+                        self.touch_start = Some((touch.id, touch.position));
+                        events.push(PointerEvent::Down(touch.position));
+                    }
+                }
+                miniquad::TouchPhase::Moved => {
+                    if let Some((start_id, _)) = self.touch_start
+                        && start_id == touch.id
+                    {
+                        events.push(PointerEvent::Moved(touch.position));
+                    }
                 }
                 miniquad::TouchPhase::Ended | miniquad::TouchPhase::Cancelled => {
                     let Some((start_id, start_pos)) = self.touch_start else {
@@ -363,33 +398,30 @@ impl InputState {
                         continue;
                     }
                     self.touch_start = None;
-                    self.touch_handled_this_frame = true;
-                    let delta = touch.position - start_pos;
-
-                    gesture = Some(if delta.length() >= SWIPE_THRESHOLD {
-                        TouchGesture::Swipe(swipe_to_direction(delta))
-                    } else {
-                        TouchGesture::Tap(start_pos)
+                    events.push(PointerEvent::Up {
+                        start: start_pos,
+                        end: touch.position,
                     });
                 }
-                miniquad::TouchPhase::Moved => {}
             }
         }
 
-        gesture
-    }
+        if !touch_seen && self.touch_start.is_none() {
+            let pos = Vec2::from(mouse_position());
+            if is_mouse_button_pressed(MouseButton::Left) {
+                self.mouse_start = Some(pos);
+                events.push(PointerEvent::Down(pos));
+            } else if let Some(start) = self.mouse_start {
+                if is_mouse_button_down(MouseButton::Left) {
+                    events.push(PointerEvent::Moved(pos));
+                } else {
+                    self.mouse_start = None;
+                    events.push(PointerEvent::Up { start, end: pos });
+                }
+            }
+        }
 
-    /// Poll mouse click. Returns click position if clicked and touch isn't active.
-    pub(crate) fn poll_mouse_click(&self) -> Option<Vec2> {
-        if self.touch_start.is_some() || self.touch_handled_this_frame {
-            return None;
-        }
-        if is_mouse_button_pressed(MouseButton::Left) {
-            let (x, y) = mouse_position();
-            Some(Vec2::new(x, y))
-        } else {
-            None
-        }
+        events
     }
 }
 
