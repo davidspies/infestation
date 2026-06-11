@@ -1,6 +1,5 @@
-#[cfg(target_arch = "wasm32")]
-pub(crate) mod email_button;
 pub(crate) mod progress_buttons;
+pub(crate) mod solution_button;
 
 use crate::game::{Game, PlayState};
 use crate::grid::{Cell, Player};
@@ -418,8 +417,7 @@ pub(crate) fn render(
             WHITE,
         );
 
-        #[cfg(target_arch = "wasm32")]
-        email_button::draw(grid_center_x, grid_center_y, font);
+        solution_button::draw(grid_center_x, grid_center_y, font);
     }
 
     // Dialogue area at bottom

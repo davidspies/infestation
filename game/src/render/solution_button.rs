@@ -3,7 +3,7 @@ use macroquad::prelude::*;
 
 use super::{cell_size, draw_text_f, grid_offset, measure_text_f};
 
-const LABEL: &str = "Email Solution To Author";
+const LABEL: &str = "Show Solution Code";
 const FONT_SIZE: u16 = 28;
 
 fn button_rect(grid_center_x: f32, grid_center_y: f32, font: &Font) -> Rect {

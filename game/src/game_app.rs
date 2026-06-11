@@ -188,14 +188,13 @@ impl App {
         self.export_overlay = ExportOverlay::Hidden;
     }
 
-    #[cfg(target_arch = "wasm32")]
-    fn email_solution(&self) {
+    /// Show the encoded solution in the copyable overlay.
+    fn show_solution(&mut self) {
         let csv = self.game.state.initial_grid.to_csv();
         let level_name = &self.stack.current_level;
         let encoded =
             crate::solution::encode_solution(level_name, &csv, &self.game.state.action_history);
-        let url = crate::solution::mailto_url(level_name, &encoded);
-        crate::open_url::open(&url);
+        self.export_overlay = ExportOverlay::Showing(encoded);
     }
 
     #[must_use]
@@ -254,18 +253,17 @@ impl App {
     fn handle_tap_or_click(&mut self, pos: Vec2) {
         let play_state = self.game.state.play_state();
 
-        // Email Solution button on win screen (WASM only)
-        #[cfg(target_arch = "wasm32")]
+        // Show Solution button on win screen
         if !self.game.is_animating()
             && play_state == PlayState::Won
-            && crate::render::email_button::hit(
+            && crate::render::solution_button::hit(
                 pos,
                 &self.game,
                 self.sprites.font(),
                 self.dialogue_height(),
             )
         {
-            self.email_solution();
+            self.show_solution();
             return;
         }
 
