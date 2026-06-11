@@ -421,7 +421,7 @@ pub(crate) fn render(
     }
 
     // Dialogue area at bottom
-    render_dialogue(description, dialogue_y(game), sprites.font());
+    render_dialogue(description, sprites.font());
 
     // Progress export/import buttons
     progress_buttons::draw(sprites.font());
@@ -576,8 +576,20 @@ pub(crate) fn confirm_dialog_hit(pos: Vec2) -> Option<bool> {
         .map(|button| button.confirms)
 }
 
-fn render_dialogue(description: Option<&str>, dialogue_y: f32, font: &Font) {
-    let dialogue_height = screen_height() - dialogue_y - BUTTON_BAR_HEIGHT - BOTTOM_SAFE_AREA;
+/// Draw the dialogue strip sized to its text, anchored above the button bar.
+fn render_dialogue(description: Option<&str>, font: &Font) {
+    let Some(text) = description else {
+        return;
+    };
+
+    let font_size: u16 = 26;
+    let line_height = font_size as f32 * 1.2;
+    let max_width = screen_width() - DIALOGUE_PADDING * 2.0;
+
+    // Text with word wrap, preserving explicit newlines
+    let wrapped = wrap_text(text, font, font_size, max_width);
+    let dialogue_height = DIALOGUE_PADDING * 2.0 + wrapped.len() as f32 * line_height;
+    let dialogue_y = button_bar_y() - dialogue_height;
 
     // Background
     draw_rectangle(
@@ -598,20 +610,11 @@ fn render_dialogue(description: Option<&str>, dialogue_y: f32, font: &Font) {
         Color::from_rgba(60, 60, 80, 255),
     );
 
-    // Text with word wrap, preserving explicit newlines
-    if let Some(text) = description {
-        let font_size: u16 = 26;
-        let line_height = font_size as f32 * 1.2;
-        let max_width = screen_width() - DIALOGUE_PADDING * 2.0;
-        let color = Color::from_rgba(200, 200, 220, 255);
-
-        let wrapped = wrap_text(text, font, font_size, max_width);
-
-        let mut y = dialogue_y + DIALOGUE_PADDING + font_size as f32;
-        for line in &wrapped {
-            draw_text_f(line, DIALOGUE_PADDING, y, font, font_size, color);
-            y += line_height;
-        }
+    let color = Color::from_rgba(200, 200, 220, 255);
+    let mut y = dialogue_y + DIALOGUE_PADDING + font_size as f32 * 0.8;
+    for line in &wrapped {
+        draw_text_f(line, DIALOGUE_PADDING, y, font, font_size, color);
+        y += line_height;
     }
 }
 
@@ -664,14 +667,6 @@ pub(crate) fn screen_to_grid(game: &Game, pos: Vec2) -> Option<Position> {
     cell_pos
         .in_bounds((game.grid_width(), game.grid_height()))
         .then_some(cell_pos)
-}
-
-fn dialogue_y(game: &Game) -> f32 {
-    let cell = cell_size(game);
-    let grid_h = game.grid_height() as f32 * cell;
-    let grid_bottom = PADDING + grid_h + PADDING;
-    // Dialogue starts at grid bottom, but no higher than needed to fit dialogue + button bar + safe area
-    grid_bottom.min(screen_height() - DIALOGUE_HEIGHT - BUTTON_BAR_HEIGHT - BOTTOM_SAFE_AREA)
 }
 
 pub(crate) fn button_bar_y() -> f32 {
