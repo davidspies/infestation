@@ -99,6 +99,9 @@ impl TryFrom<String> for Action {
 pub(crate) struct MoveHandler<G = Grid> {
     /// Grid being modified (also used for rendering during animation).
     pub(crate) grid: G,
+    /// A cell both players tried to enter. Players stay put, but the cell's
+    /// normal on-enter effects resolve after player movement.
+    pub(crate) contested_cell: Option<Position>,
     /// Movement animations in progress.
     pub(crate) moving: Vec<Moving>,
     /// Zap animations in progress.
@@ -115,6 +118,7 @@ impl<G: BorrowMut<Grid>> MoveHandler<G> {
     pub(crate) fn new(grid: G) -> Self {
         Self {
             grid,
+            contested_cell: None,
             moving: Vec::new(),
             zapping: Vec::new(),
             triggered_numbers: Vec::new(),

@@ -48,6 +48,8 @@ impl<G: BorrowMut<Grid>> MoveHandler<G> {
             let moving = [dests[0] != players[0].pos, dests[1] != players[1].pos];
 
             if moving[0] && moving[1] && dests[0] == dests[1] {
+                self.contested_cell = Some(dests[0]);
+                *self.grid.borrow_mut().at_mut(dests[0]) = Cell::Empty;
                 // Both target same cell → both blocked
                 dests[0] = players[0].pos;
                 dests[1] = players[1].pos;
