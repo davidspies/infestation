@@ -22,9 +22,9 @@ impl PathDrag {
     /// Extend the path one unit step at a time toward `target`, never
     /// entering a blocked cell: a step prefers the dominant axis, sidesteps
     /// along the other axis when that's blocked, and the path stops growing
-    /// when both are. Stepping back onto the previous cell erases the last
-    /// step, so retracing the path (or finger jitter on a cell boundary)
-    /// self-corrects.
+    /// when both are. Stepping back onto any already-drawn cell erases the
+    /// path back to that cell, so retracing the path (or finger jitter on a
+    /// cell boundary) self-corrects.
     pub(crate) fn extend_to(&mut self, target: Position, blocked: impl Fn(Position) -> bool) {
         loop {
             let last = *self.cells.last().unwrap();
@@ -44,8 +44,8 @@ impl PathDrag {
             else {
                 break;
             };
-            if self.cells.len() >= 2 && self.cells[self.cells.len() - 2] == next {
-                self.cells.pop();
+            if let Some(index) = self.cells.iter().position(|&cell| cell == next) {
+                self.cells.truncate(index + 1);
             } else {
                 self.cells.push(next);
             }
@@ -146,15 +146,21 @@ mod tests {
     }
 
     #[test]
-    fn loops_around_older_cells_are_kept() {
+    fn loops_around_older_cells_regress_to_that_cell() {
         let mut drag = drag_from(0, 0);
         for &(x, y) in &[(1, 0), (1, 1), (0, 1), (0, 0)] {
             drag.extend_to(Position::new(x, y), open);
         }
-        assert_eq!(
-            drag.cells,
-            positions(&[(0, 0), (1, 0), (1, 1), (0, 1), (0, 0)])
-        );
+        assert_eq!(drag.cells, positions(&[(0, 0)]));
+    }
+
+    #[test]
+    fn winding_back_to_middle_discards_later_steps() {
+        let mut drag = drag_from(0, 0);
+        for &(x, y) in &[(1, 0), (2, 0), (2, 1), (1, 1), (1, 0)] {
+            drag.extend_to(Position::new(x, y), open);
+        }
+        assert_eq!(drag.cells, positions(&[(0, 0), (1, 0)]));
     }
 
     #[test]
