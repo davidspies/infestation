@@ -2,3 +2,4 @@
 - Mark any function that has side effects and also returns a meaningful value with `#[must_use]`. Call sites should then handle that value by matching it, asserting it, or changing the API so there is no value to discard.
 - Use `assert!`/`assert_eq!` rather than `debug_assert!`/`debug_assert_eq!`.
 - The right time to generalize or abstract is when you have two instances. One is too soon; three is late.
+- When two code paths need the same behavior, share the implementation instead of duplicating the logic.
