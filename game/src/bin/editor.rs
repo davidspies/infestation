@@ -10,7 +10,10 @@ async fn main() {
     let args: Vec<String> = env::args().collect();
     let sprites = Sprites::load().await;
 
-    let mut app = if args.get(1).is_some_and(|a| a == "--solution") {
+    let mut app = if args.get(1).is_some_and(|a| a == "--solutions") {
+        assert_eq!(args.len(), 2, "Usage: editor --solutions");
+        App::new_solutions(sprites)
+    } else if args.get(1).is_some_and(|a| a == "--solution") {
         let encoded = args
             .get(2)
             .expect("Usage: editor --solution <base64_string>");

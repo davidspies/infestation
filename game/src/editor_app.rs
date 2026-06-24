@@ -13,6 +13,7 @@ use crate::grid::{Cell, Grid, LevelMetadata, NoteText, Player};
 use crate::input::{arrow_key, wasd_key};
 use crate::position::{Position, PositionDelta};
 use crate::render::draw_cell;
+use crate::solutions;
 use crate::sprites::Sprites;
 use crate::testing::ScenarioInput;
 
@@ -1346,6 +1347,9 @@ enum AppMode {
         scenario_names: Vec<String>,
         current_index: usize,
     },
+    Solutions {
+        current_index: usize,
+    },
 }
 
 pub struct App {
@@ -1394,6 +1398,24 @@ impl App {
                 level_name: decoded.level,
             },
         }
+    }
+
+    pub fn new_solutions(sprites: Sprites) -> Self {
+        assert!(!solutions::SOLUTIONS.is_empty());
+        let editor = Self::load_solution(0, sprites);
+        Self {
+            editor,
+            mode: AppMode::Solutions { current_index: 0 },
+        }
+    }
+
+    fn load_solution(index: usize, sprites: Sprites) -> Editor {
+        let solution = &solutions::SOLUTIONS[index];
+        let level = crate::levels::get_level(solution.level_name)
+            .unwrap_or_else(|| panic!("missing level {}", solution.level_name));
+        let mut editor = Editor::new_level(level.grid.clone(), sprites);
+        editor.replay_actions = Some(solution.actions());
+        editor
     }
 
     pub fn new_scenario(sprites: Sprites, filter: &[&str]) -> Self {
@@ -1777,24 +1799,60 @@ impl App {
             }
         }
 
+        // Solution navigation (Ctrl+Left/Right)
+        if let AppMode::Solutions {
+            ref mut current_index,
+        } = self.mode
+            && (is_key_down(KeyCode::LeftControl) || is_key_down(KeyCode::RightControl))
+        {
+            let mut new_index = None;
+            if is_key_pressed(KeyCode::Left) && *current_index > 0 {
+                new_index = Some(*current_index - 1);
+            }
+            if is_key_pressed(KeyCode::Right) && *current_index < solutions::SOLUTIONS.len() - 1 {
+                new_index = Some(*current_index + 1);
+            }
+            if let Some(idx) = new_index {
+                *current_index = idx;
+                self.editor = Self::load_solution(idx, self.editor.sprites.clone());
+            }
+        }
+
         self.editor.render();
 
-        // Draw scenario name at the bottom
-        if let AppMode::Scenario {
-            ref scenario_names,
-            current_index,
-            ..
-        } = self.mode
-        {
-            let name = &scenario_names[current_index];
-            let text = format!("{} ({}/{})", name, current_index + 1, scenario_names.len());
-            draw_text(
-                &text,
-                TOOLBAR_WIDTH + PADDING,
-                screen_height() - 10.0,
-                20.0,
-                WHITE,
-            );
+        match &self.mode {
+            AppMode::Scenario {
+                scenario_names,
+                current_index,
+                ..
+            } => {
+                let name = &scenario_names[*current_index];
+                let text = format!("{} ({}/{})", name, current_index + 1, scenario_names.len());
+                draw_text(
+                    &text,
+                    TOOLBAR_WIDTH + PADDING,
+                    screen_height() - 10.0,
+                    20.0,
+                    WHITE,
+                );
+            }
+            AppMode::Solutions { current_index } => {
+                let solution = &solutions::SOLUTIONS[*current_index];
+                let text = format!(
+                    "{} ({}/{})",
+                    solution.level_name,
+                    current_index + 1,
+                    solutions::SOLUTIONS.len()
+                );
+                draw_text(
+                    &text,
+                    TOOLBAR_WIDTH + PADDING,
+                    screen_height() - 10.0,
+                    20.0,
+                    WHITE,
+                );
+            }
+            AppMode::Level { .. } => {}
         }
 
         true
@@ -1849,6 +1907,7 @@ impl App {
                     let _ = std::fs::remove_file(&old_path);
                 }
             }
+            AppMode::Solutions { .. } => {}
         }
     }
 }

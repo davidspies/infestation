@@ -9,6 +9,7 @@ pub(crate) mod position;
 pub(crate) mod render;
 pub(crate) mod screen_wake;
 pub mod solution;
+pub(crate) mod solutions;
 pub(crate) mod storage;
 
 pub mod editor_app;
