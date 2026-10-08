@@ -38,3 +38,8 @@ static LEVELS: LazyLock<Vec<Level>> = LazyLock::new(|| {
 pub(crate) fn get_level(name: &str) -> Option<&'static Level> {
     LEVELS.iter().find(|l| l.name == name)
 }
+
+#[cfg(test)]
+pub(crate) fn all() -> &'static [Level] {
+    &LEVELS
+}

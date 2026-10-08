@@ -1,7 +1,5 @@
 //! Public testing API for scenario tests.
 
-use std::collections::HashSet;
-
 use serde::{Deserialize, Serialize};
 
 use crate::grid::Grid;
@@ -26,7 +24,7 @@ pub enum ScenarioInput {
 
 /// Create a game from CSV content.
 pub fn game_from_csv(csv: &str) -> Game {
-    Game::new(Grid::from_csv(csv), HashSet::new())
+    Game::new(Grid::from_csv(csv))
 }
 
 /// Get the grid as CSV.

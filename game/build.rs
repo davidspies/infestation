@@ -3,8 +3,17 @@ use std::fs;
 use std::io::Read;
 use std::path::Path;
 
-const FONT_PATH: &str = "../assets/DejaVuSans.ttf";
-const FONT_URL: &str = "https://github.com/dejavu-fonts/dejavu-fonts/releases/download/version_2_37/dejavu-fonts-ttf-2.37.tar.bz2";
+/// Fonts (SIL Open Font License) from the Google Fonts repository.
+const FONTS: &[(&str, &str)] = &[
+    (
+        "../assets/fonts/LilitaOne-Regular.ttf",
+        "https://github.com/google/fonts/raw/main/ofl/lilitaone/LilitaOne-Regular.ttf",
+    ),
+    (
+        "../assets/fonts/AlegreyaSans-Regular.ttf",
+        "https://github.com/google/fonts/raw/main/ofl/alegreyasans/AlegreyaSans-Regular.ttf",
+    ),
+];
 
 const MINIQUAD_JS_FILES: &[(&str, &str)] = &[
     (
@@ -19,51 +28,21 @@ const MINIQUAD_JS_FILES: &[(&str, &str)] = &[
         "../js/quad-url.js",
         "https://raw.githubusercontent.com/optozorax/quad-url/master/js/quad-url.js",
     ),
+    (
+        "../js/audio.js",
+        "https://raw.githubusercontent.com/not-fl3/quad-snd/master/js/audio.js",
+    ),
 ];
 
 fn main() {
-    download_font();
-    download_miniquad_js();
+    download_all(FONTS);
+    download_all(MINIQUAD_JS_FILES);
     embed_levels();
 }
 
-fn download_font() {
-    if Path::new(FONT_PATH).exists() {
-        return;
-    }
-
-    eprintln!("Downloading DejaVu Sans font...");
-
-    let response = ureq::get(FONT_URL)
-        .call()
-        .expect("Failed to download font archive");
-
-    let reader = bzip2::read::BzDecoder::new(response.into_body().into_reader());
-    let mut archive = tar::Archive::new(reader);
-
-    for entry in archive.entries().expect("Failed to read archive") {
-        let mut entry = entry.expect("Failed to read archive entry");
-        let path = entry.path().expect("Failed to get entry path");
-
-        if path.ends_with("DejaVuSans.ttf") {
-            let mut data = Vec::new();
-            entry
-                .read_to_end(&mut data)
-                .expect("Failed to read font data");
-
-            fs::create_dir_all(Path::new(FONT_PATH).parent().unwrap()).unwrap();
-            fs::write(FONT_PATH, &data).expect("Failed to write font file");
-
-            eprintln!("Downloaded DejaVuSans.ttf");
-            return;
-        }
-    }
-
-    panic!("DejaVuSans.ttf not found in archive");
-}
-
-fn download_miniquad_js() {
-    for &(path, url) in MINIQUAD_JS_FILES {
+/// Download each `(path, url)` whose file doesn't exist yet.
+fn download_all(files: &[(&str, &str)]) {
+    for &(path, url) in files {
         if Path::new(path).exists() {
             continue;
         }

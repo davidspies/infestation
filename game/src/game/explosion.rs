@@ -3,14 +3,15 @@ use std::borrow::BorrowMut;
 use crate::direction::Dir8;
 use crate::grid::{Cell, Grid};
 
-use super::{Exploding, MoveHandler};
+use super::{Exploding, GameEvent, MoveHandler};
 
 impl<G: BorrowMut<Grid>> MoveHandler<G> {
     pub(crate) fn start_explosion_wave(&mut self) {
         // Move pending explosions to active exploding
-        for explosion in &self.pending_explosions {
+        for &pos in &self.pending_explosions {
             // Clear the center of the explosion immediately
-            *self.grid.borrow_mut().at_mut(*explosion) = Cell::Empty;
+            let center = std::mem::replace(self.grid.borrow_mut().at_mut(pos), Cell::Empty);
+            self.events.push(GameEvent::Exploded { pos, center });
         }
         self.exploding = self
             .pending_explosions
@@ -45,6 +46,7 @@ impl<G: BorrowMut<Grid>> MoveHandler<G> {
                     | Cell::Plank => {
                         // Entity destroyed in explosion
                         *grid.at_mut(pos) = Cell::Empty;
+                        self.events.push(GameEvent::Blasted { pos, cell });
                     }
                     Cell::Empty | Cell::BlackHole | Cell::Wall | Cell::Trigger(_) => {}
                 }

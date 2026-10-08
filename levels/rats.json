@@ -3,6 +3,15 @@
   "notes": [
     {
       "x": 3,
+      "y": 6,
+      "text": {
+        "controller": "Use the D-pad or left joystick to move",
+        "keyboard": "Use the arrow keys or WASD to move",
+        "mobile": "Swipe to move, or drag a path from your character to follow it. Tap to stop."
+      }
+    },
+    {
+      "x": 3,
       "y": 7,
       "text": "Aah! It's a rat! Kill it!"
     },

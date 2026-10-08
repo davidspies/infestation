@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::position::Position;
 
-use crate::render::InputHints;
+use crate::input::InputHints;
 
 use super::{Cell, Grid};
 
@@ -63,16 +63,7 @@ impl NoteText {
 pub(crate) struct LevelMetadata {
     pub(crate) name: String,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    portals: Vec<Portal>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     notes: Vec<Note>,
-}
-
-#[derive(Serialize, Deserialize)]
-struct Portal {
-    x: i32,
-    y: i32,
-    level: String,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -87,21 +78,7 @@ impl LevelMetadata {
         serde_json::from_str(json_str).expect("invalid JSON")
     }
 
-    pub(crate) fn from_grid(
-        name: &str,
-        portals: &HashMap<Position, String>,
-        notes: &HashMap<Position, NoteText>,
-    ) -> Self {
-        let mut portals: Vec<_> = portals
-            .iter()
-            .map(|(pos, level)| Portal {
-                x: pos.x,
-                y: pos.y,
-                level: level.clone(),
-            })
-            .collect();
-        portals.sort_by_key(|p| (p.y, p.x));
-
+    pub(crate) fn from_grid(name: &str, notes: &HashMap<Position, NoteText>) -> Self {
         let mut notes: Vec<_> = notes
             .iter()
             .map(|(pos, text)| Note {
@@ -114,20 +91,12 @@ impl LevelMetadata {
 
         Self {
             name: name.to_string(),
-            portals,
             notes,
         }
     }
 
     pub(crate) fn to_json(&self) -> String {
         serde_json::to_string_pretty(self).expect("Failed to serialize JSON")
-    }
-
-    pub(crate) fn portals(&self) -> HashMap<Position, String> {
-        self.portals
-            .iter()
-            .map(|p| (Position::new(p.x as usize, p.y as usize), p.level.clone()))
-            .collect()
     }
 
     pub(crate) fn notes(&self) -> HashMap<Position, NoteText> {
@@ -140,18 +109,14 @@ impl LevelMetadata {
 
 impl Grid {
     pub fn from_csv(csv_str: &str) -> Self {
-        Self::parse_csv(csv_str, HashMap::new(), HashMap::new())
+        Self::parse_csv(csv_str, HashMap::new())
     }
 
     pub(crate) fn from_csv_and_metadata(csv_str: &str, metadata: &LevelMetadata) -> Self {
-        Self::parse_csv(csv_str, metadata.portals(), metadata.notes())
+        Self::parse_csv(csv_str, metadata.notes())
     }
 
-    fn parse_csv(
-        csv_str: &str,
-        portals: HashMap<Position, String>,
-        notes: HashMap<Position, NoteText>,
-    ) -> Self {
+    fn parse_csv(csv_str: &str, notes: HashMap<Position, NoteText>) -> Self {
         let mut reader = ReaderBuilder::new()
             .has_headers(false)
             .flexible(false)
@@ -168,7 +133,7 @@ impl Grid {
             })
             .collect();
 
-        let mut grid = Grid::new(cells, portals, notes);
+        let mut grid = Grid::new(cells, notes);
 
         // Point each rat toward a player (P1 if present, otherwise P2)
         let target = grid.find_players().first().map(|p| p.pos);

@@ -1,11 +1,22 @@
-use macroquad::window::next_frame;
+use macroquad::window::{Conf, next_frame};
 use quad_url::{easy_parse, get_program_parameters};
 
-use infestation::{game_app::App, sprites::Sprites};
+use infestation::app::App;
+
+fn window_conf() -> Conf {
+    Conf {
+        window_title: "Infestation".to_string(),
+        window_width: 1280,
+        window_height: 800,
+        high_dpi: true,
+        sample_count: 4,
+        ..Default::default()
+    }
+}
 
 /// Accepts a level name as a bare CLI argument (native) or a `level=<name>`
 /// URL query parameter (web, surfaced by quad-url as `--level=<name>`).
-#[macroquad::main("Infestation")]
+#[macroquad::main(window_conf)]
 async fn main() {
     let mut level_name: Option<String> = None;
     for param in get_program_parameters().iter().skip(1) {
@@ -18,7 +29,7 @@ async fn main() {
             panic!("Multiple levels specified");
         }
     }
-    let mut app = App::new(Sprites::load().await, level_name.as_deref());
+    let mut app = App::load(level_name.as_deref()).await;
     while app.tick() {
         next_frame().await;
     }

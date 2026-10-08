@@ -1,10 +1,10 @@
 use std::borrow::BorrowMut;
 
-use crate::grid::{Cell, Player};
+use crate::grid::Cell;
 use crate::position::Position;
 use crate::{direction::Dir4, grid::Grid};
 
-use super::{Action, Game, MoveHandler, Moving, PlayerInfo};
+use super::{Action, MoveHandler, Moving, PlayerInfo};
 
 impl<G: BorrowMut<Grid>> MoveHandler<G> {
     pub(crate) fn find_players(&self) -> Vec<crate::grid::FoundPlayer> {
@@ -113,11 +113,5 @@ impl<G: BorrowMut<Grid>> MoveHandler<G> {
         for m in &self.moving {
             *curr_grid.at_mut(m.from) = Cell::Empty;
         }
-    }
-}
-
-impl Game {
-    pub(crate) fn enter_portal(&self, player: Player) -> Option<&str> {
-        self.state.player_standing_on_portal(player)
     }
 }

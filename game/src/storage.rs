@@ -2,15 +2,42 @@ use std::collections::HashSet;
 
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
+use serde::Serialize;
+use serde::de::DeserializeOwned;
 
-pub(crate) use backend::save_completed_levels;
+macro_rules! warn_err {
+    ($expr:expr, $($arg:tt)+) => {
+        $expr.map_err(|e| log::warn!($($arg)+, e)).ok()
+    };
+}
+
+const COMPLETED_LEVELS: &str = "completed_levels";
 
 pub(crate) fn load_completed_levels() -> HashSet<String> {
-    backend::try_load_completed_levels()
+    load::<HashSet<String>>(COMPLETED_LEVELS)
         .unwrap_or_default()
         .into_iter()
         .map(|s| strip_path_prefix(&s).to_string())
         .collect()
+}
+
+pub(crate) fn save_completed_levels(completed: &HashSet<String>) {
+    save(COMPLETED_LEVELS, completed);
+}
+
+/// Load a saved value, if there is one (and it parses).
+pub(crate) fn load<T: DeserializeOwned>(name: &str) -> Option<T> {
+    let json = backend::load(name)?;
+    warn_err!(
+        serde_json::from_str(&json),
+        "Failed to parse saved {}: {}",
+        name
+    )
+}
+
+pub(crate) fn save<T: Serialize>(name: &str, value: &T) {
+    let json = serde_json::to_string(value).expect("saved values should serialize");
+    backend::save(name, &json);
 }
 
 fn encode_progress(completed: &HashSet<String>) -> String {
@@ -52,66 +79,78 @@ pub(crate) fn strip_path_prefix(s: &str) -> &str {
     s.rsplit('/').next().unwrap_or(s)
 }
 
-macro_rules! warn_err {
-    ($expr:expr, $($arg:tt)+) => {
-        $expr.map_err(|e| log::warn!($($arg)+, e)).ok()
-    };
-}
-
-#[cfg(target_arch = "wasm32")]
+#[cfg(all(target_arch = "wasm32", not(test)))]
 mod backend {
-    use super::*;
-
-    const STORAGE_KEY: &str = "infestation_completed_levels";
-
-    pub(crate) fn save_completed_levels(completed: &HashSet<String>) {
-        let json = serde_json::to_string(completed).unwrap();
-        quad_storage::STORAGE
-            .lock()
-            .unwrap()
-            .set(STORAGE_KEY, &json);
+    fn key(name: &str) -> String {
+        format!("infestation_{name}")
     }
 
-    pub(super) fn try_load_completed_levels() -> Option<HashSet<String>> {
-        let s = quad_storage::STORAGE.lock().unwrap().get(STORAGE_KEY)?;
-        warn_err!(serde_json::from_str(&s), "Failed to parse {}: {}", s)
+    pub(super) fn save(name: &str, json: &str) {
+        quad_storage::STORAGE.lock().unwrap().set(&key(name), json);
+    }
+
+    pub(super) fn load(name: &str) -> Option<String> {
+        quad_storage::STORAGE.lock().unwrap().get(&key(name))
     }
 }
 
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(all(not(target_arch = "wasm32"), not(test)))]
 mod backend {
-    use super::*;
     use std::fs::{create_dir_all, read_to_string, write};
     use std::path::PathBuf;
 
-    pub(crate) fn save_completed_levels(completed: &HashSet<String>) {
-        if let Some(path) = save_path() {
+    pub(super) fn save(name: &str, json: &str) {
+        if let Some(path) = save_path(name) {
             if let Some(parent) = path.parent() {
-                let _ = create_dir_all(parent);
+                warn_err!(
+                    create_dir_all(parent),
+                    "Failed to create {}: {}",
+                    parent.display()
+                );
             }
-            if let Ok(json) = serde_json::to_string(completed) {
-                let _ = write(path, json);
-            }
+            warn_err!(write(&path, json), "Failed to write {}: {}", path.display());
         }
     }
 
-    pub(super) fn try_load_completed_levels() -> Option<HashSet<String>> {
-        let path = save_path()?;
-        let s = warn_err!(
+    pub(super) fn load(name: &str) -> Option<String> {
+        let path = save_path(name)?;
+        if !path.exists() {
+            return None;
+        }
+        warn_err!(
             read_to_string(&path),
             "Failed to read {}: {}",
-            path.display()
-        )?;
-        warn_err!(
-            serde_json::from_str(&s),
-            "Failed to parse {}: {}",
             path.display()
         )
     }
 
-    fn save_path() -> Option<PathBuf> {
+    fn save_path(name: &str) -> Option<PathBuf> {
         let dirs = directories::ProjectDirs::from("", "dspyz", "InfestationGame")?;
-        Some(dirs.data_dir().join("completed_levels.json"))
+        Some(dirs.data_dir().join(format!("{name}.json")))
+    }
+}
+
+/// Tests keep saves in memory, so they can never touch the player's real
+/// save files.
+#[cfg(test)]
+mod backend {
+    use std::cell::RefCell;
+    use std::collections::HashMap;
+
+    thread_local! {
+        static SAVES: RefCell<HashMap<String, String>> = RefCell::new(HashMap::new());
+    }
+
+    pub(super) fn save(name: &str, json: &str) {
+        SAVES.with(|saves| {
+            saves
+                .borrow_mut()
+                .insert(name.to_string(), json.to_string())
+        });
+    }
+
+    pub(super) fn load(name: &str) -> Option<String> {
+        SAVES.with(|saves| saves.borrow().get(name).cloned())
     }
 }
 
@@ -121,6 +160,10 @@ pub(crate) mod progress {
 
     pub(crate) fn encode(completed: &HashSet<String>) -> String {
         encode_progress(completed)
+    }
+
+    pub(crate) fn decode(encoded: &str) -> Result<HashSet<String>, String> {
+        decode_progress(encoded)
     }
 
     pub(crate) fn copy_to_clipboard(text: &str) {
@@ -133,7 +176,7 @@ pub(crate) mod progress {
 
     pub(crate) fn poll_import() -> Option<HashSet<String>> {
         let encoded = clipboard::poll_read()?;
-        match decode_progress(&encoded) {
+        match decode(&encoded) {
             Ok(levels) => Some(levels),
             Err(e) => {
                 log::warn!("Failed to decode imported progress: {}", e);

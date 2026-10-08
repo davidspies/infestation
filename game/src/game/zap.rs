@@ -3,7 +3,7 @@ use std::borrow::BorrowMut;
 use crate::direction::Dir8;
 use crate::grid::{Cell, Grid};
 
-use super::{MoveHandler, Zapping};
+use super::{GameEvent, MoveHandler, Zapping};
 
 impl<G: BorrowMut<Grid>> MoveHandler<G> {
     pub(crate) fn start_zap_wave(&mut self) {
@@ -23,7 +23,10 @@ impl<G: BorrowMut<Grid>> MoveHandler<G> {
         // Replace triggers with walls and collect neighbors
         for &pos in &zap_positions {
             // Turn trigger into wall
-            *grid.at_mut(pos) = Cell::Wall;
+            let Cell::Trigger(digit) = std::mem::replace(grid.at_mut(pos), Cell::Wall) else {
+                unreachable!("zap positions are triggers");
+            };
+            self.events.push(GameEvent::Zapped { pos, digit });
         }
 
         self.zapping = zap_positions
@@ -41,7 +44,10 @@ impl<G: BorrowMut<Grid>> MoveHandler<G> {
             for dir in Dir8::all() {
                 let neighbor = pos + dir.delta();
                 match grid.at(neighbor) {
-                    Cell::Empty => *grid.at_mut(neighbor) = Cell::Wall,
+                    Cell::Empty => {
+                        *grid.at_mut(neighbor) = Cell::Wall;
+                        self.events.push(GameEvent::WallRaised { pos: neighbor });
+                    }
                     Cell::Explosive => {
                         if !self.pending_explosions.contains(&neighbor) {
                             self.pending_explosions.push(neighbor);

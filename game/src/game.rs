@@ -1,21 +1,10 @@
 use std::borrow::BorrowMut;
-use std::collections::HashSet;
-use std::sync::atomic::{AtomicBool, Ordering};
 
 use serde::{Deserialize, Serialize};
 
 use crate::direction::Dir4;
 use crate::grid::{Cell, Grid, NoteText, Player};
-use crate::levels;
 use crate::position::Position;
-use crate::storage::strip_path_prefix;
-
-static ALL_LEVELS_UNLOCKED: AtomicBool = AtomicBool::new(false);
-
-#[unsafe(no_mangle)]
-pub extern "C" fn unlock_all_levels() {
-    ALL_LEVELS_UNLOCKED.store(true, Ordering::Relaxed);
-}
 
 mod animation;
 mod cyborg_distance;
@@ -35,7 +24,8 @@ pub struct PlayerInfo {
     pub player: Player,
 }
 
-const MOVE_SPEED: f32 = 15.0;
+/// Animation phases (moving, zapping, each explosion wave) per second.
+const MOVE_SPEED: f32 = 9.0;
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -63,6 +53,41 @@ pub(crate) struct Exploding {
 pub(crate) struct Zapping {
     pub(crate) pos: Position,
     pub(crate) progress: f32,
+}
+
+/// A notable change while resolving a turn, consumed by the presentation
+/// layer for effects and sounds.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) enum GameEvent {
+    /// A new turn begins; the `Moved` events that follow belong to it.
+    Turn,
+    /// An entity starts moving from `from` to `to` (equal when it turns in
+    /// place or its move is blocked).
+    Moved {
+        entity: Cell,
+        from: Position,
+        to: Position,
+    },
+    /// A moving entity arrived at `pos`, replacing a non-empty cell (which it
+    /// killed, destroyed or consumed).
+    Arrived {
+        pos: Position,
+        entity: Cell,
+        displaced: Cell,
+    },
+    /// A moving entity fell into the black hole at `pos`.
+    Swallowed { pos: Position, entity: Cell },
+    /// Both players tried to enter `pos`, clearing its non-empty contents.
+    Contested { pos: Position, cleared: Cell },
+    /// The explosive at `pos` detonated, destroying `center` (the explosive
+    /// itself, or whatever had entered its cell).
+    Exploded { pos: Position, center: Cell },
+    /// A blast destroyed `cell` at `pos`.
+    Blasted { pos: Position, cell: Cell },
+    /// A signalled trigger at `pos` turned into a wall.
+    Zapped { pos: Position, digit: u8 },
+    /// A zap turned the empty cell at `pos` into a wall.
+    WallRaised { pos: Position },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
@@ -112,6 +137,8 @@ pub(crate) struct MoveHandler<G = Grid> {
     pub(crate) exploding: Vec<Exploding>,
     /// Explosions queued for the next wave.
     pub(crate) pending_explosions: Vec<Position>,
+    /// Events recorded since they were last drained.
+    pub(crate) events: Vec<GameEvent>,
 }
 
 impl<G: BorrowMut<Grid>> MoveHandler<G> {
@@ -124,6 +151,7 @@ impl<G: BorrowMut<Grid>> MoveHandler<G> {
             triggered_numbers: Vec::new(),
             exploding: Vec::new(),
             pending_explosions: Vec::new(),
+            events: Vec::new(),
         }
     }
 
@@ -140,6 +168,11 @@ impl<G: BorrowMut<Grid>> MoveHandler<G> {
         let grid = self.grid.borrow_mut();
         *grid.at_mut(moving.from) = Cell::Empty;
         self.moving.push(moving);
+        self.events.push(GameEvent::Moved {
+            entity: moving.cell,
+            from: moving.from,
+            to: moving.to,
+        });
         let dest_entity = grid.at_mut(moving.to);
         if !matches!(*dest_entity, Cell::BlackHole) {
             // The grid changes will get overwritten when we replace the grid with the previous one.
@@ -157,7 +190,6 @@ pub struct GameState {
     pub(crate) history: Vec<Grid>,
     pub(crate) action_history: Vec<Vec<Action>>,
     pub(crate) queued_actions: Option<Vec<Action>>,
-    pub(crate) completed_levels: HashSet<String>,
     /// Tracks which player moved last (for note priority). None if no moves yet.
     /// If both moved in sync, this is Some(Player1) (P1 priority).
     pub(crate) last_acting_player: Option<Player>,
@@ -167,7 +199,7 @@ pub struct GameState {
 #[derive(Clone)]
 pub struct Game {
     pub(crate) state: GameState,
-    /// Animation state. When Some, render from handler.prev_grid.
+    /// Animation state. When Some, render from handler.grid.
     /// state.grid always has the final resolved state.
     pub(crate) animation: Option<MoveHandler>,
 }
@@ -177,14 +209,13 @@ impl GameState {
         Self::count_players(&self.initial_grid)
     }
 
-    pub(crate) fn new(grid: Grid, completed_levels: HashSet<String>) -> Self {
+    pub(crate) fn new(grid: Grid) -> Self {
         Self {
             initial_grid: grid.clone(),
             grid: grid.clone(),
             history: vec![grid],
             action_history: Vec::new(),
             queued_actions: None,
-            completed_levels,
             last_acting_player: None,
         }
     }
@@ -198,23 +229,14 @@ impl GameState {
             .map(|p| p.pos)
     }
 
-    /// Returns the portal destination for a specific player.
-    pub(crate) fn player_standing_on_portal(&self, player: Player) -> Option<&str> {
-        self.grid.get_portal(self.player_position(player)?)
-    }
-
-    /// Returns the portal destination if any player is currently standing on a portal.
-    /// If both players are on portals, prefers P1.
-    pub(crate) fn standing_on_portal(&self) -> Option<&str> {
-        self.player_standing_on_portal(Player::Player1)
-            .or_else(|| self.player_standing_on_portal(Player::Player2))
-    }
-
-    /// Returns the note text if a player is currently standing on a note cell.
+    /// The note a player is standing on, and which player.
     /// Priority: if both players are on notes, prefer whichever moved last.
     /// If both moved in sync, prefer P1.
-    pub(crate) fn standing_on_note(&self) -> Option<&NoteText> {
-        let note_under = |player| self.grid.get_note(self.player_position(player)?);
+    pub(crate) fn standing_on_note(&self) -> Option<(Player, &NoteText)> {
+        let note_under = |player| {
+            let note = self.grid.get_note(self.player_position(player)?)?;
+            Some((player, note))
+        };
         let p1_note = note_under(Player::Player1);
         let p2_note = note_under(Player::Player2);
 
@@ -231,56 +253,6 @@ impl GameState {
             (None, Some(_)) => p2_note,
             (None, None) => None,
         }
-    }
-
-    fn is_level_completed(&self, level: &str) -> bool {
-        ALL_LEVELS_UNLOCKED.load(Ordering::Relaxed)
-            || self.completed_levels.contains(strip_path_prefix(level))
-    }
-
-    pub(crate) fn mark_level_completed(&mut self, level: &str) {
-        self.completed_levels
-            .insert(strip_path_prefix(level).to_string());
-    }
-
-    /// Returns the display name of the portal if standing on a completed portal.
-    pub(crate) fn standing_on_completed_portal(&self) -> Option<&str> {
-        let portal = self.standing_on_portal()?;
-        self.is_level_completed(portal)
-            .then(|| levels::get_level(portal).map(|l| l.display_name.as_str()))?
-    }
-
-    /// Returns the portal destination if any player just stepped onto an unvisited portal (auto-enter).
-    /// If both players stepped onto portals, prefers P1.
-    pub(crate) fn portal_destination(&self) -> Option<&str> {
-        if self.history.len() < 2 {
-            return None;
-        }
-        let prev_grid = &self.history[self.history.len() - 2];
-
-        // Collect all players on portals, sorted by player (P1 first)
-        let mut candidates: Vec<_> = self
-            .grid
-            .entries()
-            .filter_map(|(pos, cell)| cell.as_player().map(|(player, _)| (player, pos)))
-            .filter_map(|(player, pos)| self.grid.get_portal(pos).map(|p| (player, pos, p)))
-            .collect();
-        candidates.sort_by_key(|(player, _, _)| *player);
-
-        for (player, player_pos, portal) in candidates {
-            if self.is_level_completed(portal) {
-                continue;
-            }
-            // Check if this player moved to this position (was elsewhere before)
-            let prev_pos = prev_grid.entries().find_map(|(pos, cell)| {
-                matches!(cell, Cell::Player(p, _) if p == player).then_some(pos)
-            });
-            if prev_pos != Some(player_pos) {
-                return Some(portal);
-            }
-        }
-
-        None
     }
 
     pub(crate) fn initial_has_rats(&self) -> bool {
@@ -319,15 +291,11 @@ impl GameState {
 }
 
 impl Game {
-    pub(crate) fn new(grid: Grid, completed_levels: HashSet<String>) -> Self {
+    pub(crate) fn new(grid: Grid) -> Self {
         Self {
-            state: GameState::new(grid, completed_levels),
+            state: GameState::new(grid),
             animation: None,
         }
-    }
-
-    pub(crate) fn is_level_completed(&self, level: &str) -> bool {
-        self.state.is_level_completed(level)
     }
 
     pub(crate) fn restart(&mut self) {
@@ -378,6 +346,7 @@ impl Game {
 
         // Handler #2: for animation
         let mut animator = MoveHandler::new(prev_grid);
+        animator.events.push(GameEvent::Turn);
         animator.do_player_moves(actions);
 
         if !animator.is_empty() {
@@ -421,10 +390,6 @@ impl Game {
         self.state.action_history.push(actions.to_vec());
 
         true
-    }
-
-    pub(crate) fn initial_has_rats(&self) -> bool {
-        self.state.initial_has_rats()
     }
 
     pub(crate) fn grid_width(&self) -> usize {

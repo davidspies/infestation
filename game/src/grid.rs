@@ -125,16 +125,11 @@ pub(crate) struct Grid {
     cells: Vec<Vec<Cell>>,
     width: usize,
     height: usize,
-    portals: HashMap<Position, String>,
     notes: HashMap<Position, NoteText>,
 }
 
 impl Grid {
-    pub(crate) fn new(
-        cells: Vec<Vec<Cell>>,
-        portals: HashMap<Position, String>,
-        notes: HashMap<Position, NoteText>,
-    ) -> Self {
+    pub(crate) fn new(cells: Vec<Vec<Cell>>, notes: HashMap<Position, NoteText>) -> Self {
         let height = cells.len();
         let width = cells.first().map(|r| r.len()).unwrap();
         for row in &cells {
@@ -144,7 +139,6 @@ impl Grid {
             cells,
             width,
             height,
-            portals,
             notes,
         }
     }
@@ -155,7 +149,6 @@ impl Grid {
             cells,
             width,
             height,
-            portals: HashMap::new(),
             notes: HashMap::new(),
         }
     }
@@ -240,29 +233,9 @@ impl Grid {
         }
         self.width = new_width;
 
-        // Remove portals and notes outside new bounds
-        self.portals
-            .retain(|pos, _| (pos.x as usize) < new_width && (pos.y as usize) < new_height);
+        // Remove notes outside new bounds
         self.notes
             .retain(|pos, _| (pos.x as usize) < new_width && (pos.y as usize) < new_height);
-    }
-
-    pub(crate) fn get_portal(&self, player_pos: Position) -> Option<&str> {
-        self.portals.get(&player_pos).map(String::as_str)
-    }
-
-    pub(crate) fn portals(&self) -> impl Iterator<Item = (Position, &str)> {
-        self.portals
-            .iter()
-            .map(|(&pos, level)| (pos, level.as_str()))
-    }
-
-    pub(crate) fn insert_portal(&mut self, pos: Position, level: String) {
-        self.portals.insert(pos, level);
-    }
-
-    pub(crate) fn remove_portal(&mut self, pos: Position) {
-        self.portals.remove(&pos);
     }
 
     pub(crate) fn get_note(&self, pos: Position) -> Option<&NoteText> {
@@ -289,6 +262,6 @@ impl Grid {
     }
 
     pub(crate) fn to_json(&self, level_name: &str) -> String {
-        LevelMetadata::from_grid(level_name, &self.portals, &self.notes).to_json()
+        LevelMetadata::from_grid(level_name, &self.notes).to_json()
     }
 }

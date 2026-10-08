@@ -21,8 +21,9 @@ base64 = "*"
 csv = "*"
 enum-map = "*"
 flate2 = "*"
+jpeg-decoder = "*"
 log = "*"
-macroquad = "*"
+macroquad = { version = "*", features = ["audio"] }
 quad-gamepad = { path = "../quad-gamepad" }
 quad-touch = { path = "../quad-touch" }
 quad-url = "*"
@@ -39,6 +40,4 @@ directories = "*"
 keepawake = "*"
 
 [build-dependencies]
-bzip2 = "*"
-tar = "*"
 ureq = "*"

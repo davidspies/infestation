@@ -12,7 +12,7 @@ use crate::game::{Action, Game, PlayState};
 use crate::grid::{Cell, Grid, LevelMetadata, NoteText, Player};
 use crate::input::{arrow_key, wasd_key};
 use crate::position::{Position, PositionDelta};
-use crate::render::draw_cell;
+use crate::render::board::{draw_cell_static, draw_note_static};
 use crate::sprites::Sprites;
 use crate::testing::ScenarioInput;
 
@@ -41,7 +41,6 @@ enum Tool {
     Player2,
     Rat,
     CyborgRat,
-    Portal,
     Note,
     Plank,
     Spiderweb,
@@ -51,7 +50,7 @@ enum Tool {
 }
 
 impl Tool {
-    fn all() -> [Tool; 13] {
+    fn all() -> [Tool; 12] {
         [
             Tool::Move,
             Tool::Wall,
@@ -59,7 +58,6 @@ impl Tool {
             Tool::Player2,
             Tool::Rat,
             Tool::CyborgRat,
-            Tool::Portal,
             Tool::Note,
             Tool::Plank,
             Tool::Spiderweb,
@@ -77,7 +75,6 @@ impl Tool {
             Tool::Player2 => "Player2",
             Tool::Rat => "Rat",
             Tool::CyborgRat => "Cyborg",
-            Tool::Portal => "Portal",
             Tool::Note => "Note",
             Tool::Plank => "Plank",
             Tool::Spiderweb => "Web",
@@ -96,7 +93,6 @@ impl Tool {
             Tool::Player2 => Some('2'),
             Tool::Rat => None,
             Tool::CyborgRat => Some('c'),
-            Tool::Portal => Some('g'),
             Tool::Note => Some('n'),
             Tool::Plank => Some('='),
             Tool::Spiderweb => None,
@@ -108,7 +104,7 @@ impl Tool {
 
     fn to_cell(self, player_dir: Dir4, trigger_digit: u8) -> Option<Cell> {
         match self {
-            Tool::Move | Tool::Portal | Tool::Note => None,
+            Tool::Move | Tool::Note => None,
             Tool::Wall => Some(Cell::Wall),
             Tool::Player => Some(Cell::Player(Player::Player1, player_dir)),
             Tool::Player2 => Some(Cell::Player(Player::Player2, player_dir)),
@@ -127,7 +123,6 @@ impl Tool {
 struct DraggedItem {
     delta: PositionDelta,
     cell: Cell,
-    portal: Option<String>,
     note: Option<NoteText>,
 }
 
@@ -156,7 +151,6 @@ struct Editor {
     tool: Tool,
     player_dir: Dir4,  // Direction for placing new players
     trigger_digit: u8, // Current digit for Trigger tool (1-9)
-    portal_dialog: Option<(Position, usize, String)>, // (position, pane, current text) when entering portal level
     note_dialog: Option<(Position, usize, String)>, // (position, pane, current text) when entering note text
     sprites: Sprites,
     dragging: Option<(Position, Cell)>, // Source position and cell being dragged
@@ -175,7 +169,7 @@ struct Editor {
 
 impl Editor {
     fn new_level(grid: Grid, sprites: Sprites) -> Self {
-        let game = Game::new(grid.clone(), HashSet::new());
+        let game = Game::new(grid.clone());
         Self {
             before_grid: grid,
             mode: EditorMode::Level {
@@ -185,7 +179,6 @@ impl Editor {
             tool: Tool::Move,
             player_dir: Dir4::North,
             trigger_digit: 1,
-            portal_dialog: None,
             note_dialog: None,
             sprites,
             dragging: None,
@@ -218,7 +211,6 @@ impl Editor {
             tool: Tool::Move,
             player_dir: Dir4::North,
             trigger_digit: 1,
-            portal_dialog: None,
             note_dialog: None,
             sprites,
             dragging: None,
@@ -248,7 +240,7 @@ impl Editor {
             ref input_history,
         } = self.mode
         {
-            **game = Game::new(self.before_grid.clone(), HashSet::new());
+            **game = Game::new(self.before_grid.clone());
             for actions in input_history {
                 if game.state.play_state() == PlayState::Playing {
                     game.apply_actions(actions);
@@ -355,11 +347,7 @@ impl Editor {
     fn q_pick(&mut self, pos: Position, pane: usize) {
         let grid = self.grid_for_pane(pane);
 
-        // Check for portal/note first (they overlay cells)
-        if grid.get_portal(pos).is_some() {
-            self.tool = Tool::Portal;
-            return;
-        }
+        // Check for a note first (it overlays the cell)
         if grid.get_note(pos).is_some() {
             self.tool = Tool::Note;
             return;
@@ -410,13 +398,7 @@ impl Editor {
     fn erase_cell(&mut self, pos: Position, pane: usize) {
         let grid = self.grid_for_pane_mut(pane);
         *grid.at_mut(pos) = Cell::Empty;
-        grid.remove_portal(pos);
         grid.remove_note(pos);
-        self.replay_inputs();
-    }
-
-    fn place_portal(&mut self, pos: Position, level: String, pane: usize) {
-        self.grid_for_pane_mut(pane).insert_portal(pos, level);
         self.replay_inputs();
     }
 
@@ -435,14 +417,12 @@ impl Editor {
             let mut positions_to_clear = Vec::new();
             for &sel_pos in &self.selection {
                 let cell = grid.at(sel_pos);
-                let portal = grid.get_portal(sel_pos).map(String::from);
                 let note = grid.get_note(sel_pos).cloned();
-                // Include position if it has a non-empty cell, portal, or note
-                if !matches!(cell, Cell::Empty) || portal.is_some() || note.is_some() {
+                // Include position if it has a non-empty cell or a note
+                if !matches!(cell, Cell::Empty) || note.is_some() {
                     items.push(DraggedItem {
                         delta: sel_pos - pos,
                         cell,
-                        portal,
                         note,
                     });
                     positions_to_clear.push(sel_pos);
@@ -453,7 +433,6 @@ impl Editor {
             let grid = self.grid_for_pane_mut(pane);
             for sel_pos in positions_to_clear {
                 *grid.at_mut(sel_pos) = Cell::Empty;
-                grid.remove_portal(sel_pos);
                 grid.remove_note(sel_pos);
             }
 
@@ -485,9 +464,6 @@ impl Editor {
                     if !matches!(item.cell, Cell::Empty) {
                         *grid.at_mut(target) = item.cell;
                     }
-                    if let Some(level) = item.portal {
-                        grid.insert_portal(target, level);
-                    }
                     if let Some(text) = item.note {
                         grid.insert_note(target, text);
                     }
@@ -511,9 +487,6 @@ impl Editor {
             for item in items {
                 let target = anchor + item.delta;
                 *grid.at_mut(target) = item.cell;
-                if let Some(level) = item.portal {
-                    grid.insert_portal(target, level);
-                }
                 if let Some(text) = item.note {
                     grid.insert_note(target, text);
                 }
@@ -545,14 +518,10 @@ impl Editor {
         if let Some((start, end)) = self.selecting_rect.take() {
             let (min, max) = rect_corners(start, end);
             let grid = self.grid_for_pane(pane);
-            // Select cells with content: non-empty, or with a portal or note
+            // Select cells with content: non-empty, or with a note
             self.selection = (min.y..=max.y)
                 .flat_map(|y| (min.x..=max.x).map(move |x| Position { x, y }))
-                .filter(|&pos| {
-                    !matches!(grid.at(pos), Cell::Empty)
-                        || grid.get_portal(pos).is_some()
-                        || grid.get_note(pos).is_some()
-                })
+                .filter(|&pos| !matches!(grid.at(pos), Cell::Empty) || grid.get_note(pos).is_some())
                 .collect();
         }
     }
@@ -638,74 +607,8 @@ impl Editor {
         // Draw toolbar
         self.render_toolbar();
 
-        // Draw portal dialog if active
-        self.render_portal_dialog();
-
         // Draw note dialog if active
         self.render_note_dialog();
-    }
-
-    fn render_portal_dialog(&self) {
-        let Some((_, _, ref text)) = self.portal_dialog else {
-            return;
-        };
-
-        let dialog_w = 300.0;
-        let dialog_h = 100.0;
-        let dialog_x = (screen_width() - dialog_w) / 2.0;
-        let dialog_y = (screen_height() - dialog_h) / 2.0;
-
-        // Dim background
-        draw_rectangle(
-            0.0,
-            0.0,
-            screen_width(),
-            screen_height(),
-            Color::from_rgba(0, 0, 0, 150),
-        );
-
-        // Dialog box
-        draw_rectangle(
-            dialog_x,
-            dialog_y,
-            dialog_w,
-            dialog_h,
-            Color::from_rgba(40, 40, 50, 255),
-        );
-        draw_rectangle_lines(dialog_x, dialog_y, dialog_w, dialog_h, 2.0, WHITE);
-
-        // Title
-        draw_text(
-            "Enter level name:",
-            dialog_x + 10.0,
-            dialog_y + 30.0,
-            26.0,
-            WHITE,
-        );
-
-        // Text input box
-        let input_x = dialog_x + 10.0;
-        let input_y = dialog_y + 45.0;
-        let input_w = dialog_w - 20.0;
-        let input_h = 30.0;
-        draw_rectangle(
-            input_x,
-            input_y,
-            input_w,
-            input_h,
-            Color::from_rgba(20, 20, 30, 255),
-        );
-        draw_rectangle_lines(input_x, input_y, input_w, input_h, 1.0, GRAY);
-        draw_text(text, input_x + 5.0, input_y + 22.0, 22.0, WHITE);
-
-        // Hint
-        draw_text(
-            "Enter to confirm, Esc to cancel",
-            dialog_x + 10.0,
-            dialog_y + 90.0,
-            14.0,
-            GRAY,
-        );
     }
 
     fn render_note_dialog(&self) {
@@ -874,7 +777,12 @@ impl Editor {
 
     fn draw_cell_preview(&self, cell: Cell, x: f32, y: f32, cell_size: f32, alpha: u8) {
         let tint = Color::from_rgba(255, 255, 255, alpha);
-        draw_cell(cell, x, y, cell_size, &self.sprites, tint);
+        draw_cell_static(
+            &self.sprites,
+            cell,
+            Rect::new(x, y, cell_size, cell_size),
+            tint,
+        );
     }
 
     fn render_grid(&self, grid: &Grid, pane: usize, pane_width: f32, cell_size: f32, label: &str) {
@@ -907,44 +815,23 @@ impl Editor {
             draw_line(offset_x, y, offset_x + grid_w, y, 1.0, DARKGRAY);
         }
 
-        // Draw portals
-        for (pos, level) in grid.portals() {
-            let completed = match &self.mode {
-                EditorMode::Level { game, .. } => game.is_level_completed(level),
-                EditorMode::Scenario { .. } => false,
-            };
-            let texture = self.sprites.portal(completed);
-            draw_texture_ex(
-                texture,
-                offset_x + pos.x as f32 * cell_size,
-                offset_y + pos.y as f32 * cell_size,
-                WHITE,
-                DrawTextureParams {
-                    dest_size: Some(vec2(cell_size, cell_size)),
-                    ..Default::default()
-                },
-            );
-        }
-
         // Draw notes
         for (pos, _) in grid.notes() {
-            draw_texture_ex(
-                &self.sprites.note,
-                offset_x + pos.x as f32 * cell_size,
-                offset_y + pos.y as f32 * cell_size,
-                WHITE,
-                DrawTextureParams {
-                    dest_size: Some(vec2(cell_size, cell_size)),
-                    ..Default::default()
-                },
-            );
+            let px = offset_x + pos.x as f32 * cell_size;
+            let py = offset_y + pos.y as f32 * cell_size;
+            draw_note_static(&self.sprites, Rect::new(px, py, cell_size, cell_size));
         }
 
         // Draw cells
         for (pos, cell) in grid.entries() {
             let px = offset_x + pos.x as f32 * cell_size;
             let py = offset_y + pos.y as f32 * cell_size;
-            draw_cell(cell, px, py, cell_size, &self.sprites, WHITE);
+            draw_cell_static(
+                &self.sprites,
+                cell,
+                Rect::new(px, py, cell_size, cell_size),
+                WHITE,
+            );
         }
 
         // Show game state on right pane (level mode only - scenario mode shows in toolbar)
@@ -1508,26 +1395,6 @@ impl App {
 
     /// Run one frame of the editor loop. Returns true to continue.
     pub fn tick(&mut self) -> bool {
-        // Handle portal dialog input first (blocks other input)
-        if let Some((pos, pane, ref mut text)) = self.editor.portal_dialog {
-            if is_key_pressed(KeyCode::Escape) {
-                self.editor.portal_dialog = None;
-            } else if is_key_pressed(KeyCode::Enter) && !text.is_empty() {
-                let level = text.clone();
-                self.editor.portal_dialog = None;
-                self.editor.place_portal(pos, level, pane);
-            } else if is_key_pressed(KeyCode::Backspace) && !text.is_empty() {
-                text.pop();
-            } else if let Some(c) = get_char_pressed()
-                && (c.is_alphanumeric() || c == '_' || c == '-' || c == ' ' || c == '/')
-            {
-                text.push(c);
-            }
-
-            self.editor.render();
-            return true;
-        }
-
         // Handle note dialog input (blocks other input)
         if let Some((pos, pane, ref mut text)) = self.editor.note_dialog {
             if is_key_pressed(KeyCode::Escape) {
@@ -1695,10 +1562,6 @@ impl App {
                                 self.editor.start_drag(pos, pane);
                             }
                         }
-                        Tool::Portal => {
-                            // Open portal dialog
-                            self.editor.portal_dialog = Some((pos, pane, String::new()));
-                        }
                         Tool::Note => {
                             // Open note dialog
                             self.editor.note_dialog = Some((pos, pane, String::new()));
@@ -1723,7 +1586,7 @@ impl App {
                     if let Some((pos, _)) = self.editor.screen_to_grid(mx, my) {
                         self.editor.update_selection(pos);
                     }
-                } else if !matches!(self.editor.tool, Tool::Move | Tool::Portal | Tool::Note)
+                } else if !matches!(self.editor.tool, Tool::Move | Tool::Note)
                     && self.editor.dragging.is_none()
                     && let Some((pos, pane)) = self.editor.screen_to_grid(mx, my)
                     && self.editor.last_paint_pos != Some(pos)
@@ -1732,7 +1595,7 @@ impl App {
                         .tool
                         .to_cell(self.editor.player_dir, self.editor.trigger_digit)
                 {
-                    // Continue drag-painting for non-Move/Portal tools
+                    // Continue drag-painting for placement tools
                     self.editor.place_cell(pos, cell, pane);
                     self.editor.last_paint_pos = Some(pos);
                 }

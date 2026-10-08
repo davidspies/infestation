@@ -28,22 +28,15 @@ jobs:
       - name: Build WASM
         run: cargo build --target wasm32-unknown-unknown --release
 
-      - name: Download JS dependencies
-        run: |
-          curl -o js/gl.js https://raw.githubusercontent.com/not-fl3/miniquad/master/js/gl.js
-          curl -o js/sapp_jsutils.js https://raw.githubusercontent.com/not-fl3/sapp-jsutils/master/js/sapp_jsutils.js
-
-      - name: Download font
-        run: |
-          curl -L https://github.com/dejavu-fonts/dejavu-fonts/releases/download/version_2_37/dejavu-fonts-ttf-2.37.tar.bz2 | tar -xjf - --wildcards '*/DejaVuSans.ttf' --strip-components=2 -C assets
-
+      # build.rs downloads the fonts and miniquad's JS. Sprites, textures,
+      # sound effects and levels are embedded in the wasm; music streams in
+      # (MP3 on the web, which every browser decodes).
       - name: Prepare deployment
         run: |
-          mkdir -p dist
+          mkdir -p dist/assets/music
           cp index.html dist/
           cp -r js dist/
-          cp -r assets dist/
-          cp -r levels dist/
+          cp assets/music/*.mp3 dist/assets/music/
           cp target/wasm32-unknown-unknown/release/infestation.wasm dist/
           # Update wasm path in index.html for deployment
           sed -i 's|target/wasm32-unknown-unknown/release/||' dist/index.html

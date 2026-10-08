@@ -2,7 +2,7 @@ use enum_map::{Enum, EnumMap};
 use macroquad::input::utils::{register_input_subscriber, repeat_all_miniquad_input};
 use macroquad::miniquad;
 use macroquad::prelude::*;
-use quad_gamepad::{GamepadAxis, GamepadButton, GamepadContext};
+use quad_gamepad::{ControllerType, GamepadAxis, GamepadButton, GamepadContext};
 
 use crate::direction::Dir4;
 use crate::game::Action;
@@ -58,6 +58,15 @@ fn dpad_button(dir: Dir4) -> GamepadButton {
         Dir4::East => GamepadButton::DPadRight,
         Dir4::West => GamepadButton::DPadLeft,
     }
+}
+
+/// Which device the player is using, for showing matching button prompts.
+#[derive(Clone, Copy, Debug, PartialEq, Default)]
+pub(crate) enum InputHints {
+    #[default]
+    Keyboard,
+    Touch,
+    Controller(ControllerType),
 }
 
 /// A player action with metadata from input polling.
@@ -152,9 +161,15 @@ pub(crate) struct InputState {
     held_confirm: EnumMap<Player, f32>,
     /// Per-gamepad analog stick edge detection.
     stick_active: EnumMap<Gamepad, EnumMap<Dir4, bool>>,
+    /// Directional held timers for menu/map navigation, from any source.
+    held_nav: EnumMap<Dir4, f32>,
     touch_start: Option<(u64, Vec2)>,
     mouse_start: Option<Vec2>,
     touch_subscriber: usize,
+    /// The device most recently used.
+    hints: InputHints,
+    /// Whether any input has been seen yet (before that, hints are guessed).
+    used_any: bool,
 }
 
 impl InputState {
@@ -166,9 +181,54 @@ impl InputState {
             held_undo: 0.0,
             held_confirm: EnumMap::default(),
             stick_active: EnumMap::default(),
+            held_nav: EnumMap::default(),
             touch_start: None,
             mouse_start: None,
             touch_subscriber: register_input_subscriber(),
+            hints: InputHints::Keyboard,
+            used_any: false,
+        }
+    }
+
+    /// The device the player last used. Before any input, prefers touch on
+    /// touch devices, then a connected controller.
+    pub(crate) fn hints(&self, gamepad: &GamepadContext) -> InputHints {
+        match self.hints {
+            InputHints::Keyboard if !self.used_any => {
+                if quad_touch::is_touch_device() {
+                    InputHints::Touch
+                } else if let Some(gp) = gamepad.gamepad(0)
+                    && gp.is_connected()
+                {
+                    InputHints::Controller(gp.controller_type())
+                } else {
+                    InputHints::Keyboard
+                }
+            }
+            hints => hints,
+        }
+    }
+
+    /// Note which device was used this frame.
+    pub(crate) fn track_device(&mut self, gamepad: &GamepadContext) {
+        if get_last_key_pressed().is_some()
+            || (self.touch_start.is_none() && is_mouse_button_pressed(MouseButton::Left))
+        {
+            self.hints = InputHints::Keyboard;
+            self.used_any = true;
+        }
+        for index in 0..2 {
+            let Some(gp) = gamepad.gamepad(index) else {
+                continue;
+            };
+            let pressed = ALL_BUTTONS.iter().any(|&b| gp.is_button_pressed(b));
+            let stick = [GamepadAxis::LeftX, GamepadAxis::LeftY]
+                .iter()
+                .any(|&a| gp.axis(a).abs() > STICK_THRESHOLD);
+            if gp.is_connected() && (pressed || stick) {
+                self.hints = InputHints::Controller(gp.controller_type());
+                self.used_any = true;
+            }
         }
     }
 
@@ -186,6 +246,9 @@ impl InputState {
         }
         self.held_undo = SUPPRESSED;
         for (_, held) in self.held_confirm.iter_mut() {
+            *held = SUPPRESSED;
+        }
+        for (_, held) in self.held_nav.iter_mut() {
             *held = SUPPRESSED;
         }
         // Set all stick directions as active so edge-detection won't fire until released.
@@ -219,9 +282,9 @@ impl InputState {
             inputs.push(MetaInput::Undo);
         }
 
-        // Per-player confirm with repeat: Space → both, gp0 → P1, gp1 → P2
-        let space_down = is_key_down(KeyCode::Space);
-        let space_pressed = is_key_pressed(KeyCode::Space);
+        // Per-player confirm with repeat: Space/Enter → both, gp0 → P1, gp1 → P2
+        let space_down = is_key_down(KeyCode::Space) || is_key_down(KeyCode::Enter);
+        let space_pressed = is_key_pressed(KeyCode::Space) || is_key_pressed(KeyCode::Enter);
         let confirm_sources: [(bool, bool, Player); 4] = [
             (space_down, space_pressed, Player::Player1),
             (space_down, space_pressed, Player::Player2),
@@ -267,17 +330,27 @@ impl InputState {
     }
 
     /// Poll all input sources and return per-player actions.
-    /// Arrow keys are P1 normally, but become P2 if gamepad 1 is connected.
+    ///
+    /// With one player, every source controls them. With two, WASD and the
+    /// second controller are P2's, and the arrow keys are P1's unless the
+    /// first controller is connected (then they're P2's).
     pub(crate) fn poll_player_actions(
         &mut self,
         gamepad: &GamepadContext,
         dt: f32,
+        player_count: usize,
     ) -> EnumMap<Player, Option<PlayerInput>> {
+        let solo = player_count < 2;
+        let second = if solo {
+            Player::Player1
+        } else {
+            Player::Player2
+        };
         let controller_connected = gamepad
             .gamepad(Gamepad::Gamepad1.index())
             .is_some_and(|g| g.is_connected());
         let arrow_player = if controller_connected {
-            Player::Player2
+            second
         } else {
             Player::Player1
         };
@@ -294,10 +367,10 @@ impl InputState {
             });
         }
 
-        // Source 1: WASD → always P2
+        // Source 1: WASD → P2
         if let Some((action, fresh)) = poll_keys_dir(wasd_key, &mut self.held_move[1], dt) {
             let synced = is_key_down(WASD_SYNC);
-            result[Player::Player2] = Some(PlayerInput {
+            result[second] = Some(PlayerInput {
                 action,
                 synced,
                 fresh,
@@ -341,7 +414,7 @@ impl InputState {
             });
         }
 
-        // Source 3: Gamepad 2 → always P2
+        // Source 3: Gamepad 2 → P2
         if let Some((action, fresh)) = poll_gamepad_action(
             gamepad,
             Gamepad::Gamepad2.index(),
@@ -355,13 +428,33 @@ impl InputState {
                 Gamepad::Gamepad2.index(),
                 GamepadButton::RightShoulder,
             );
-            result[Player::Player2] = Some(PlayerInput {
+            result[second] = Some(PlayerInput {
                 action,
                 synced,
                 fresh,
             });
         }
 
+        result
+    }
+
+    /// A direction for moving through menus and the map, from any device,
+    /// repeating while held.
+    pub(crate) fn poll_nav(&mut self, gamepad: &GamepadContext, dt: f32) -> Option<Dir4> {
+        let mut result = None;
+        for (dir, held) in self.held_nav.iter_mut() {
+            let down = is_key_down(arrow_key(dir))
+                || is_key_down(wasd_key(dir))
+                || (0..2).any(|i| {
+                    gp_btn_down(gamepad, i, dpad_button(dir)) || stick_points(gamepad, i, dir)
+                });
+            let pressed = is_key_pressed(arrow_key(dir))
+                || is_key_pressed(wasd_key(dir))
+                || (0..2).any(|i| gp_btn_pressed(gamepad, i, dpad_button(dir)));
+            if input_repeat_nav(down, pressed, held, dt) {
+                result = result.or(Some(dir));
+            }
+        }
         result
     }
 
@@ -616,3 +709,58 @@ fn swipe_to_direction(delta: Vec2) -> Dir4 {
         Dir4::North
     }
 }
+
+/// Whether gamepad `index`'s left stick points in `dir`.
+fn stick_points(gp: &GamepadContext, index: usize, dir: Dir4) -> bool {
+    let x = gp_stick_value(gp, index, GamepadAxis::LeftX);
+    let y = gp_stick_value(gp, index, GamepadAxis::LeftY);
+    match dir {
+        Dir4::North => y > x.abs(),
+        Dir4::South => -y > x.abs(),
+        Dir4::East => x > y.abs(),
+        Dir4::West => -x > y.abs(),
+    }
+}
+
+const NAV_REPEAT_RATE: f32 = 0.11;
+
+/// Like `input_repeat`, but repeating at a comfortable menu-scrolling rate.
+/// Stick deflection counts as a press when it starts.
+fn input_repeat_nav(down: bool, pressed: bool, held: &mut f32, dt: f32) -> bool {
+    if *held == SUPPRESSED {
+        if !down {
+            *held = 0.0;
+        }
+        return false;
+    }
+    if down {
+        let first = *held == 0.0;
+        *held += dt;
+        let repeats_before = ((*held - dt - REPEAT_DELAY) / NAV_REPEAT_RATE).floor();
+        let repeats_now = ((*held - REPEAT_DELAY) / NAV_REPEAT_RATE).floor();
+        pressed || first || (*held > REPEAT_DELAY && repeats_now > repeats_before)
+    } else {
+        *held = 0.0;
+        false
+    }
+}
+
+const ALL_BUTTONS: [GamepadButton; 17] = [
+    GamepadButton::South,
+    GamepadButton::East,
+    GamepadButton::West,
+    GamepadButton::North,
+    GamepadButton::LeftShoulder,
+    GamepadButton::RightShoulder,
+    GamepadButton::LeftTrigger,
+    GamepadButton::RightTrigger,
+    GamepadButton::Select,
+    GamepadButton::Start,
+    GamepadButton::LeftStick,
+    GamepadButton::RightStick,
+    GamepadButton::DPadUp,
+    GamepadButton::DPadDown,
+    GamepadButton::DPadLeft,
+    GamepadButton::DPadRight,
+    GamepadButton::Home,
+];

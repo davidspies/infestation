@@ -3,7 +3,7 @@ use std::borrow::BorrowMut;
 use crate::grid::{Cell, Grid};
 use crate::position::Position;
 
-use super::{Game, MOVE_SPEED, MoveHandler};
+use super::{Game, GameEvent, MOVE_SPEED, MoveHandler};
 
 enum EnteredCell {
     KeepEnteringEntity,
@@ -133,6 +133,7 @@ impl<G: BorrowMut<Grid>> MoveHandler<G> {
         let grid = self.grid.borrow_mut();
         // Update grid: place entities at destination (if they survived)
         for m in self.moving.drain(..) {
+            let displaced = grid.at(m.to);
             if matches!(
                 grid.resolve_entered_cell(
                     m.to,
@@ -141,12 +142,24 @@ impl<G: BorrowMut<Grid>> MoveHandler<G> {
                 ),
                 EnteredCell::RemoveEnteringEntity
             ) {
+                self.events.push(GameEvent::Swallowed {
+                    pos: m.to,
+                    entity: m.cell,
+                });
                 continue;
+            }
+            if displaced != Cell::Empty {
+                self.events.push(GameEvent::Arrived {
+                    pos: m.to,
+                    entity: m.cell,
+                    displaced,
+                });
             }
             // Place entity (overwrites whatever was there)
             *grid.at_mut(m.to) = m.cell;
         }
         if let Some(pos) = self.contested_cell.take() {
+            let cleared = grid.at(pos);
             if matches!(
                 grid.resolve_entered_cell(
                     pos,
@@ -156,27 +169,30 @@ impl<G: BorrowMut<Grid>> MoveHandler<G> {
                 EnteredCell::KeepEnteringEntity
             ) {
                 *grid.at_mut(pos) = Cell::Empty;
+                if cleared != Cell::Empty {
+                    self.events.push(GameEvent::Contested { pos, cleared });
+                }
             }
         }
     }
 }
 
 impl Game {
-    pub(crate) fn animate(&mut self, mut dt: f32) {
-        while let Some(ref mut handler) = self.animation {
+    /// Advance the turn being played back, returning what happened.
+    #[must_use]
+    pub(crate) fn animate(&mut self, mut dt: f32) -> Vec<GameEvent> {
+        let mut events = Vec::new();
+        while let Some(handler) = &mut self.animation {
             let done = handler.advance_animation(&mut dt);
+            events.append(&mut handler.events);
             if !done {
                 break;
             }
-            // Animation complete - check portal before processing queued actions
             self.animation = None;
-            if self.state.portal_destination().is_some() {
-                // Player just stepped on uncompleted portal - drop queued actions
-                // to allow portal transition to happen
-                self.state.queued_actions = None;
-            } else if let Some(actions) = self.state.queued_actions.take() {
+            if let Some(actions) = self.state.queued_actions.take() {
                 self.begin_actions(&actions);
             }
         }
+        events
     }
 }

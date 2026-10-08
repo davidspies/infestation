@@ -1,9 +1,7 @@
 use super::*;
 use crate::grid::Grid;
-use std::collections::HashSet;
-
 fn game_from_csv(csv: &str) -> Game {
-    Game::new(Grid::from_csv(csv), HashSet::new())
+    Game::new(Grid::from_csv(csv))
 }
 
 fn player_pos(game: &Game) -> Position {
