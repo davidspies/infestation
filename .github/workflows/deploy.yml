@@ -41,6 +41,26 @@ jobs:
           # Update wasm path in index.html for deployment
           sed -i 's|target/wasm32-unknown-unknown/release/||' dist/index.html
 
+      # The original version, from before the visual overhaul, served at
+      # /classic/ for comparison. Its build.rs downloads its font and JS.
+      - name: Check out the classic version
+        uses: actions/checkout@v4
+        with:
+          ref: bb566d6ef7b127dbb2696de0bb07dd1689e7d0e9
+          path: classic
+
+      - name: Build the classic version
+        working-directory: classic
+        run: cargo build --target wasm32-unknown-unknown --release
+
+      - name: Add the classic version
+        run: |
+          mkdir -p dist/classic
+          cp classic/index.html dist/classic/
+          cp -r classic/js classic/assets dist/classic/
+          cp classic/target/wasm32-unknown-unknown/release/infestation.wasm dist/classic/
+          sed -i 's|target/wasm32-unknown-unknown/release/||' dist/classic/index.html
+
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
