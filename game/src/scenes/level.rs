@@ -6,7 +6,7 @@ use macroquad::prelude::*;
 
 use crate::audio::Sfx;
 use crate::direction::Dir4;
-use crate::game::{Action, Game, PlayState};
+use crate::game::{Action, Death, Game, PlayState};
 use crate::grid::{Cell, Player};
 use crate::input::{MetaInput, PlayerInput, PointerEvent, TouchGesture};
 use crate::levels::Level;
@@ -79,6 +79,8 @@ pub(crate) struct LevelScene {
     time: f32,
     /// When the level was won or lost (scene time), once animations settle.
     ended: Option<f32>,
+    /// What killed a hero, once one has died.
+    death: Option<Death>,
     dialogue: Dialogue,
     /// When restart was first pressed, awaiting a second press.
     restart_armed: Option<f32>,
@@ -111,6 +113,7 @@ impl LevelScene {
             pending_timer: 0.0,
             time: 0.0,
             ended: None,
+            death: None,
             dialogue: Dialogue::default(),
             restart_armed: None,
             progress_before: None,
@@ -184,6 +187,7 @@ impl LevelScene {
         self.fx.clear();
         self.facings.snap(&self.game.state.grid);
         self.ended = None;
+        self.death = None;
         self.restart_armed = None;
     }
 

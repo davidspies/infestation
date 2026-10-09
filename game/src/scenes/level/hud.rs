@@ -5,7 +5,7 @@ use macroquad::prelude::*;
 
 use super::{LevelScene, OUTCOME_DELAY, UiAction};
 use crate::atlas::SpriteId;
-use crate::game::PlayState;
+use crate::game::{Death, PlayState};
 use crate::grid::{Cell, Player};
 use crate::input::InputHints;
 use crate::levels::Level;
@@ -139,7 +139,13 @@ impl LevelScene {
         let (title, subtitle, color) = if won {
             ("CLEARED!", "Every rat is gone.", GOLD)
         } else {
-            ("BITTEN!", "The rats got you.", DANGER)
+            let (title, subtitle) = match self.death.expect("a lost level has a death") {
+                Death::Bitten => ("BITTEN!", "The rats got you."),
+                Death::Blasted => ("KABOOM!", "Caught in the blast."),
+                Death::Swallowed => ("SWALLOWED!", "The black hole pulled you in."),
+                Death::FriendlyFire => ("FRIENDLY FIRE!", "One hero got the other."),
+            };
+            (title, subtitle, DANGER)
         };
         if won {
             sprites.additive(|| {

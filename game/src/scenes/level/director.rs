@@ -68,6 +68,7 @@ impl LevelScene {
     pub(super) fn react(&mut self, ctx: &mut Ctx, events: Vec<GameEvent>) {
         let mut moves = Vec::new();
         for event in events {
+            self.death = self.death.or(event.death());
             match event {
                 GameEvent::Turn => {
                     self.facings.begin_moves(&moves);

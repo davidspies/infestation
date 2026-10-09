@@ -32,14 +32,26 @@ fn idle(dt: f32) -> FrameInput {
     }
 }
 
-fn moving(dir: Dir4) -> FrameInput {
+fn acting(action: Action) -> FrameInput {
     let mut input = idle(1.0 / 60.0);
     input.players[Player::Player1] = Some(PlayerInput {
-        action: Action::Move(dir),
+        action,
         synced: false,
         fresh: true,
     });
     input
+}
+
+fn moving(dir: Dir4) -> FrameInput {
+    acting(Action::Move(dir))
+}
+
+fn tiny_level(name: &'static str, csv: &str) -> levels::Level {
+    levels::Level {
+        name,
+        display_name: name.to_string(),
+        grid: crate::grid::Grid::from_csv(csv),
+    }
 }
 
 /// Tiny levels that each show off one kind of effect.
@@ -55,13 +67,35 @@ static FX_LEVELS: std::sync::LazyLock<Vec<levels::Level>> = std::sync::LazyLock:
         ("fx_plank", "R,=,.,.\n.,.,.,.\nw,.,.,.\n▲,.,.,.\n"),
     ]
     .into_iter()
-    .map(|(name, csv)| levels::Level {
-        name,
-        display_name: name.to_string(),
-        grid: crate::grid::Grid::from_csv(csv),
-    })
+    .map(|(name, csv)| tiny_level(name, csv))
     .collect()
 });
+
+/// Tiny levels that each end in a different death, and the move that ends them.
+static LOSE_LEVELS: std::sync::LazyLock<Vec<(levels::Level, Action)>> =
+    std::sync::LazyLock::new(|| {
+        [
+            ("lose_bitten", ".,.,.\n.,▲,.\n.,R,.\n.,.,.\n", Action::Stall),
+            (
+                "lose_blasted",
+                ".,X,.\n.,▲,.\n.,.,.\n",
+                Action::Move(Dir4::North),
+            ),
+            (
+                "lose_swallowed",
+                ".,O,.\n.,▲,.\n.,.,.\n",
+                Action::Move(Dir4::North),
+            ),
+            (
+                "lose_friendly_fire",
+                ".,.,.\n►,▷,.\n.,.,.\n",
+                Action::Move(Dir4::East),
+            ),
+        ]
+        .into_iter()
+        .map(|(name, csv, action)| (tiny_level(name, csv), action))
+        .collect()
+    });
 
 /// The shortest single-player solution to a level, by breadth-first search.
 fn solve(level: &levels::Level) -> Vec<Action> {
@@ -278,18 +312,7 @@ fn screenshots() {
             for _ in 0..150 {
                 scene.update(&mut ctx, &idle(1.0 / 60.0), &layout);
             }
-            let input = match first {
-                Some(dir) => moving(dir),
-                None => {
-                    let mut wait = idle(1.0 / 60.0);
-                    wait.players[Player::Player1] = Some(PlayerInput {
-                        action: Action::Stall,
-                        synced: false,
-                        fresh: true,
-                    });
-                    wait
-                }
-            };
+            let input = acting(first.map_or(Action::Stall, Action::Move));
             scene.update(&mut ctx, &input, &layout);
             let mut frame = 0;
             for shot in [2, 6, 10, 16, 24, 40] {
@@ -301,6 +324,27 @@ fn screenshots() {
                 save(&sprites, &dir, &format!("{}_{shot:02}", level.name));
                 next_frame().await;
             }
+        }
+
+        // The game-over card for each way to die.
+        for (level, action) in LOSE_LEVELS.iter() {
+            if !want(level.name) {
+                continue;
+            }
+            let mut progress = Progress::default();
+            let mut ctx = ctx!(&mut progress);
+            let mut scene = LevelScene::new(level);
+            let layout = ScreenLayout::current();
+            for _ in 0..150 {
+                scene.update(&mut ctx, &idle(1.0 / 60.0), &layout);
+            }
+            scene.update(&mut ctx, &acting(*action), &layout);
+            for _ in 0..120 {
+                scene.update(&mut ctx, &idle(1.0 / 60.0), &layout);
+            }
+            scene.draw(&ctx, &layout);
+            save(&sprites, &dir, level.name);
+            next_frame().await;
         }
 
         // Restart asks for a second press.

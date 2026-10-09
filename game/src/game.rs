@@ -90,6 +90,49 @@ pub(crate) enum GameEvent {
     WallRaised { pos: Position },
 }
 
+/// What killed a hero.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) enum Death {
+    /// A rat or cyborg rat got them.
+    Bitten,
+    /// An explosion got them.
+    Blasted,
+    /// They fell into a black hole.
+    Swallowed,
+    /// The other hero walked into them.
+    FriendlyFire,
+}
+
+impl GameEvent {
+    /// How this event killed a hero, if it did.
+    pub(crate) fn death(self) -> Option<Death> {
+        match self {
+            GameEvent::Arrived {
+                entity: Cell::Player(..),
+                displaced: Cell::Player(..),
+                ..
+            } => Some(Death::FriendlyFire),
+            GameEvent::Arrived {
+                displaced: Cell::Player(..),
+                ..
+            } => Some(Death::Bitten),
+            GameEvent::Swallowed {
+                entity: Cell::Player(..),
+                ..
+            } => Some(Death::Swallowed),
+            GameEvent::Exploded {
+                center: Cell::Player(..),
+                ..
+            }
+            | GameEvent::Blasted {
+                cell: Cell::Player(..),
+                ..
+            } => Some(Death::Blasted),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(into = "String", try_from = "String")]
 pub enum Action {
