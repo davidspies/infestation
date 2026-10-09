@@ -11,6 +11,7 @@ use crate::render::shapes::{faded, rounded_rect, rounded_rect_outline};
 use crate::render::text::{self, Align};
 use crate::render::ui::{self, Button, ButtonKind, ScreenLayout};
 use crate::scenes::{Ctx, FrameInput};
+use crate::settings::Settings;
 use crate::sprites::Face;
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -20,6 +21,7 @@ pub(crate) enum MenuItem {
     WorldMap,
     Music,
     Sound,
+    Shake,
     Export,
     Import,
     Title,
@@ -54,6 +56,7 @@ impl Menu {
         items.extend([
             MenuItem::Music,
             MenuItem::Sound,
+            MenuItem::Shake,
             MenuItem::Export,
             MenuItem::Import,
         ]);
@@ -96,12 +99,13 @@ impl Menu {
     }
 
     fn adjust(&self, item: MenuItem, delta: f32, ctx: &mut Ctx) {
-        let volume = match item {
+        let value = match item {
             MenuItem::Music => &mut ctx.settings.music_volume,
             MenuItem::Sound => &mut ctx.settings.sfx_volume,
+            MenuItem::Shake => &mut ctx.settings.screen_shake,
             _ => return,
         };
-        *volume = ((*volume + delta) * 10.0).round().clamp(0.0, 10.0) / 10.0;
+        *value = ((*value + delta) * 10.0).round().clamp(0.0, 10.0) / 10.0;
         ctx.audio.music_volume = ctx.settings.music_volume;
         ctx.audio.sfx_volume = ctx.settings.sfx_volume;
         ctx.settings.save();
@@ -117,11 +121,8 @@ impl Menu {
             MenuItem::Import => MenuChoice::Import,
             MenuItem::Title => MenuChoice::Title,
             MenuItem::Quit => MenuChoice::Quit,
-            MenuItem::Music | MenuItem::Sound => {
-                let on = match item {
-                    MenuItem::Music => ctx.settings.music_volume > 0.0,
-                    _ => ctx.settings.sfx_volume > 0.0,
-                };
+            MenuItem::Music | MenuItem::Sound | MenuItem::Shake => {
+                let on = slider_value(item, ctx.settings).expect("a slider") > 0.0;
                 self.adjust(item, if on { -1.0 } else { 1.0 }, ctx);
                 return None;
             }
@@ -173,13 +174,9 @@ impl Menu {
                 }
                 self.focus = i;
                 let item = self.items[i];
-                if matches!(item, MenuItem::Music | MenuItem::Sound) {
+                if let Some(current) = slider_value(item, ctx.settings) {
                     let slider = slider_rect(*row, layout.s);
                     let value = ((click.x - slider.x) / slider.w).clamp(0.0, 1.0);
-                    let current = match item {
-                        MenuItem::Music => ctx.settings.music_volume,
-                        _ => ctx.settings.sfx_volume,
-                    };
                     self.adjust(item, value - current, ctx);
                     return None;
                 }
@@ -220,24 +217,21 @@ impl Menu {
                 MenuItem::WorldMap => (SpriteId::IconMap, "World map"),
                 MenuItem::Music => (SpriteId::IconMusic, "Music"),
                 MenuItem::Sound => (SpriteId::IconSound, "Sound"),
+                MenuItem::Shake => (SpriteId::IconGear, "Screen shake"),
                 MenuItem::Export => (SpriteId::IconExport, "Export progress"),
                 MenuItem::Import => (SpriteId::IconImport, "Import progress"),
                 MenuItem::Title => (SpriteId::IconDoor, "Title screen"),
                 MenuItem::Quit => (SpriteId::IconClose, "Quit game"),
             };
-            match item {
-                MenuItem::Music | MenuItem::Sound => {
-                    let value = match item {
-                        MenuItem::Music => ctx.settings.music_volume,
-                        _ => ctx.settings.sfx_volume,
-                    };
+            match slider_value(*item, ctx.settings) {
+                Some(value) => {
                     if focused || ui::hovered(row) {
                         rounded_rect(row, 12.0 * s, faded(rgb(0x3a3249), 0.9));
                     }
                     if focused {
                         rounded_rect_outline(row, 12.0 * s, 2.0 * s, GOLD);
                     }
-                    let icon = if value == 0.0 {
+                    let icon = if value == 0.0 && *item != MenuItem::Shake {
                         SpriteId::IconMute
                     } else {
                         icon
@@ -288,7 +282,7 @@ impl Menu {
 }
 
 fn slider_rect(row: Rect, s: f32) -> Rect {
-    let x = row.x + row.w * 0.42;
+    let x = row.x + row.w * 0.52;
     Rect::new(x, row.y, row.right() - x - 46.0 * s, row.h)
 }
 
@@ -432,4 +426,14 @@ fn wrap_chars(ctx: &Ctx, code: &str, size: f32, max_width: f32) -> Vec<String> {
         lines.push(line);
     }
     lines
+}
+
+/// The setting a slider row shows, if it's a slider.
+fn slider_value(item: MenuItem, settings: &Settings) -> Option<f32> {
+    match item {
+        MenuItem::Music => Some(settings.music_volume),
+        MenuItem::Sound => Some(settings.sfx_volume),
+        MenuItem::Shake => Some(settings.screen_shake),
+        _ => None,
+    }
 }

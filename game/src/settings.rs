@@ -10,6 +10,8 @@ const SETTINGS: &str = "settings";
 pub(crate) struct Settings {
     pub(crate) music_volume: f32,
     pub(crate) sfx_volume: f32,
+    /// How much the screen shakes, from 0 (not at all) to 1 (fully).
+    pub(crate) screen_shake: f32,
     /// The level the hero last stood at on the world map.
     pub(crate) map_level: Option<String>,
 }
@@ -19,6 +21,7 @@ impl Default for Settings {
         Self {
             music_volume: 0.5,
             sfx_volume: 0.9,
+            screen_shake: 1.0,
             map_level: None,
         }
     }

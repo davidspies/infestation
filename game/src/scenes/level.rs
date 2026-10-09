@@ -443,6 +443,7 @@ impl LevelScene {
                 fx: &self.fx,
                 palette: &self.palette,
                 time: self.time,
+                shake: ctx.settings.screen_shake,
                 ghosts: &ghosts,
             },
         );

@@ -175,12 +175,14 @@ pub(crate) struct BoardView<'a> {
     pub(crate) fx: &'a Fx,
     pub(crate) palette: &'a Palette,
     pub(crate) time: f32,
+    /// The player's screen shake setting, from 0 to 1.
+    pub(crate) shake: f32,
     /// Preregistered moves, drawn translucent at their destination.
     pub(crate) ghosts: &'a [(Position, Cell)],
 }
 
 pub(crate) fn draw(sprites: &Sprites, layout: BoardLayout, view: &BoardView) {
-    let shake = view.fx.shake_offset(layout.space.cell);
+    let shake = view.fx.shake_offset(layout.space.cell) * view.shake;
     let layout = BoardLayout {
         space: BoardSpace {
             origin: layout.space.origin + shake,
