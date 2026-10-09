@@ -417,6 +417,37 @@ fn screenshots() {
             shot!("flow_7_pause");
         }
 
+        // Chains to a locked level: all intact, then one shattering just
+        // after its level is cleared.
+        let cellar = ["rats", "more_rats", "webs", "planks", "blackhole_v2"];
+        for (shot, extra, before_extra, at, frames) in [
+            ("map_chains", vec![], None, "triggers", 120),
+            (
+                "map_chain_break",
+                vec!["triggers", "explosives", "explosives2"],
+                Some(vec!["triggers", "explosives"]),
+                "explosives2",
+                40,
+            ),
+        ] {
+            if !want(shot) {
+                continue;
+            }
+            let mut progress = Progress::with_completed(cellar.iter().copied().chain(extra));
+            let before =
+                before_extra.map(|b| Progress::with_completed(cellar.iter().copied().chain(b)));
+            let from = before.as_ref().map(|_| levels::get_level(at).unwrap());
+            let mut scene = MapScene::new(&progress, Some(at), from, before.as_ref());
+            let mut ctx = ctx!(&mut progress);
+            let layout = ScreenLayout::current();
+            for _ in 0..frames {
+                scene.update(&mut ctx, &idle(1.0 / 60.0), &layout);
+            }
+            scene.draw(&ctx, &layout);
+            save(&sprites, &dir, shot);
+            next_frame().await;
+        }
+
         // World map: fresh, mid-way, and just after clearing the cellar.
         for (shot, completed, before) in [
             ("map_new", vec![], None),

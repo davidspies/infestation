@@ -33,7 +33,7 @@
     {"id": "no_retreat", "level": "no_retreat", "pos": [35, 34.5]},
     {"id": "tinderbox", "level": "tinderbox", "pos": [33, 28.5]},
     {"id": "tinderrectangle", "level": "tinderrectangle", "pos": [28.5, 28.5]},
-    {"id": "triggering_explosives_v3", "level": "triggering_explosives_v3", "pos": [19, 29.5]},
+    {"id": "triggering_explosives_v3", "level": "triggering_explosives_v3", "pos": [19, 29.5], "requires": ["triggers", "explosives", "explosives2"]},
     {"id": "order_of_operations_new_v2", "level": "order_of_operations_new_v2", "pos": [23, 28.5]},
     {"id": "hall_plaza", "pos": [23, 16.5]},
     {"id": "hall_north", "pos": [23, 12]},

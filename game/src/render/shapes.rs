@@ -166,6 +166,21 @@ pub(crate) fn ring(center: Vec2, radius: f32, thickness: f32, color: Color) {
     fill_band(&outer, &inner, color, color);
 }
 
+/// An elliptical ring: `radii` along and across `angle`, which rotates it
+/// clockwise.
+pub(crate) fn ellipse_ring(center: Vec2, radii: Vec2, angle: f32, thickness: f32, color: Color) {
+    let n = arc_segments(radii.max_element(), TAU);
+    let rotation = Vec2::from_angle(angle);
+    let half = thickness / 2.0;
+    let point = |i: usize, grow: f32| {
+        let a = TAU * i as f32 / n as f32;
+        center + rotation.rotate(vec2(a.cos() * (radii.x + grow), a.sin() * (radii.y + grow)))
+    };
+    let outer: Vec<_> = (0..n).map(|i| point(i, half)).collect();
+    let inner: Vec<_> = (0..n).map(|i| point(i, -half)).collect();
+    fill_band(&outer, &inner, color, color);
+}
+
 /// A thick polyline with round joins and caps.
 pub(crate) fn polyline(points: &[Vec2], thickness: f32, color: Color) {
     let half = thickness / 2.0;

@@ -137,6 +137,9 @@ pub(crate) struct MapScene {
     appear: Vec<Option<(f32, bool)>>,
     /// When newly reached regions start shedding their fog.
     reveal: Vec<Option<(f32, bool)>>,
+    /// Chains whose requirement was just met: when each shatters, and
+    /// whether we've announced it.
+    breaking: Vec<([usize; 2], f32, bool)>,
     cells: MapCells,
     palettes: EnumMap<Theme, Palette>,
     fx: Fx,
@@ -173,6 +176,14 @@ impl MapScene {
                     .then_some((0.35, false))
             })
             .collect();
+        let chains = map.chains(progress);
+        let breaking = before.map_or_else(Vec::new, |b| {
+            map.chains(b)
+                .into_iter()
+                .filter(|chain| !chains.contains(chain))
+                .map(|chain| (chain, 0.3, false))
+                .collect()
+        });
         let level_node = |name: &str| map.node_of_level(name).filter(|&n| reached[n]);
         let frontier = || {
             (0..map.nodes.len()).find(|&n| {
@@ -200,6 +211,7 @@ impl MapScene {
             reached,
             appear,
             reveal,
+            breaking,
             cells: MapCells::new(map),
             palettes: EnumMap::from_fn(palette::palette),
             fx: Fx::default(),
@@ -374,6 +386,23 @@ impl MapScene {
                     p.vel = Vec2::from_angle(a) * 2.5;
                     p.drag = 3.5;
                     p.size = (0.35, 0.05);
+                    p.color = (GOLD, faded(GOLD, 0.0));
+                    p.blend = Blend::Additive;
+                    self.fx.spawn(p);
+                }
+            }
+        }
+        for (chain, t, announced) in &mut self.breaking {
+            if !*announced && self.time >= *t {
+                *announced = true;
+                ctx.audio.play(Sfx::Hit);
+                let middle = (map.nodes[chain[0]].pos + map.nodes[chain[1]].pos) / 2.0;
+                for i in 0..10 {
+                    let a = i as f32 / 10.0 * TAU;
+                    let mut p = Particle::new(SpriteId::Star, middle, 0.6);
+                    p.vel = Vec2::from_angle(a) * 2.2;
+                    p.drag = 3.5;
+                    p.size = (0.3, 0.05);
                     p.color = (GOLD, faded(GOLD, 0.0));
                     p.blend = Blend::Additive;
                     self.fx.spawn(p);

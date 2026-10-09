@@ -1,9 +1,12 @@
 //! Drawing the world map and its side panel.
 
+use std::f32::consts::TAU;
+
 use macroquad::prelude::*;
 
 use super::MapScene;
 use crate::atlas::SpriteId;
+use crate::direction::Dir4;
 use crate::grid::{Cell, Player};
 use crate::input::InputHints;
 use crate::levels::Level;
@@ -13,7 +16,8 @@ use crate::render::board::{SPRITE_SPAN, dir_vector};
 use crate::render::fx::{BoardSpace, ease_out_back};
 use crate::render::palette::{self, DANGER, GOLD, INK, SUCCESS, TEXT, TEXT_DIM, rgb};
 use crate::render::shapes::{
-    circle, dashed_polyline, faded, radial_gradient, ring, rounded_rect, soft_shadow,
+    circle, dashed_polyline, ellipse_ring, faded, polyline, radial_gradient, ring, rounded_rect,
+    soft_shadow,
 };
 use crate::render::terrain::{self, Terrain};
 use crate::render::text::{self, Align};
@@ -94,6 +98,7 @@ impl MapScene {
                 WHITE,
             );
         }
+        self.draw_chains(space, ctx.progress);
         self.draw_nodes(sprites, space, ctx.progress);
         self.draw_hero(sprites, space);
         if ctx.hints != InputHints::Touch {
@@ -198,7 +203,7 @@ impl MapScene {
                     sprites.draw_at(
                         SpriteId::Glow,
                         at,
-                        c * 2.0,
+                        c * 2.0 * pop.max(0.0),
                         faded(DANGER, 0.15 + pulse * 0.2),
                     )
                 });
@@ -244,16 +249,31 @@ impl MapScene {
             if !map.region_revealed(map.nodes[node].region, &self.reached) {
                 continue;
             }
+            let requires = &map.nodes[node].requires;
             let name = if self.reached[node] {
-                level.display_name.as_str()
+                level.display_name.clone()
+            } else if requires.is_empty() {
+                "Locked".to_string()
             } else {
-                "Locked"
+                let names: Vec<&str> = requires.iter().map(|l| l.display_name.as_str()).collect();
+                match names.split_last() {
+                    Some((last, [])) => format!("Needs {last}"),
+                    Some((last, rest)) => format!("Needs {} & {last}", rest.join(", ")),
+                    None => unreachable!("requirements are non-empty"),
+                }
             };
+            let name = name.as_str();
             let size = 17.0 * s;
             let w = text::width(sprites, name, Face::Display, size) + 20.0 * s;
             let h = 28.0 * s;
-            let anchor =
-                space.to_screen(map.nodes[node].pos) - vec2(0.0, space.cell * 1.15 + h / 2.0);
+            // Above the medallion, unless that's where an exit arrow is.
+            let center = space.to_screen(map.nodes[node].pos);
+            let offset = space.cell * 1.15 + h / 2.0;
+            let anchor = match self.exit_arrows_at(node) {
+                (true, false) => center + vec2(0.0, offset),
+                (true, true) => center - vec2(0.0, offset + space.cell * 0.9),
+                (false, _) => center - vec2(0.0, offset),
+            };
             let rect = Rect::new(anchor.x - w / 2.0, anchor.y - h / 2.0, w, h);
             rounded_rect(
                 Rect::new(rect.x, rect.y + 3.0 * s, rect.w, rect.h),
@@ -282,6 +302,36 @@ impl MapScene {
             );
         }
     }
+    /// Chains from each level still to be cleared to the node it keeps
+    /// locked, plus any chains shattering because they just came free.
+    fn draw_chains(&self, space: BoardSpace, progress: &Progress) {
+        let map = &*WORLD_MAP;
+        let shown =
+            |[_, locked]: [usize; 2]| map.region_revealed(map.nodes[locked].region, &self.reached);
+        let ends = |[key, locked]: [usize; 2]| (map.nodes[key].pos, map.nodes[locked].pos);
+        for chain in map.chains(progress).into_iter().filter(|&c| shown(c)) {
+            let (from, to) = ends(chain);
+            draw_chain(space, from, to, 0.0);
+        }
+        for &(chain, start, _) in &self.breaking {
+            let burst = ((self.time - start) / 0.7).clamp(0.0, 1.0);
+            if burst < 1.0 && shown(chain) {
+                let (from, to) = ends(chain);
+                draw_chain(space, from, to, burst);
+            }
+        }
+    }
+
+    /// Whether exit arrows point (up, down) from `node` right now.
+    fn exit_arrows_at(&self, node: usize) -> (bool, bool) {
+        if node != self.at || self.walk.is_some() {
+            return (false, false);
+        }
+        let exits = WORLD_MAP.exits(node);
+        let open = |dir: Dir4| exits[dir].is_some_and(|next| self.reached[next]);
+        (open(Dir4::North), open(Dir4::South))
+    }
+
     /// While the hero stands still, an arrow on each open path out saying
     /// which way to press to take it.
     fn draw_exits(&self, space: BoardSpace) {
@@ -295,7 +345,8 @@ impl MapScene {
             let Some(next) = next else {
                 continue;
             };
-            if !self.reached[next] {
+            // Not toward locked nodes, nor ones yet to pop in.
+            if !self.reached[next] || self.node_alpha(next) <= 0.0 {
                 continue;
             }
             // Partway along the path toward its next stop.
@@ -604,4 +655,63 @@ fn draw_preview(level: &Level, area: Rect, s: f32) {
             Cell::Wall | Cell::Empty => {}
         }
     }
+}
+
+/// An iron chain hanging slightly slack from `from` to `to` (map cells).
+/// `burst` in [0, 1] flings the links apart as it shatters.
+fn draw_chain(space: BoardSpace, from: Vec2, to: Vec2, burst: f32) {
+    let c = space.cell;
+    let length = from.distance(to);
+    let middle = (from + to) / 2.0 + vec2(0.0, (length * 0.06).min(0.8));
+    let point = |t: f32| {
+        let u = 1.0 - t;
+        from * u * u + middle * 2.0 * u * t + to * t * t
+    };
+    let link = 0.3;
+    let count = (length / (link * 0.8)).ceil().max(2.0) as usize;
+    let alpha = 1.0 - burst;
+    // Each link's screen position and angle.
+    let links: Vec<(Vec2, f32)> = (0..count)
+        .map(|i| {
+            let t = (i as f32 + 0.5) / count as f32;
+            let tangent = point((t + 0.01).min(1.0)) - point((t - 0.01).max(0.0));
+            // A stable random direction per link to fly off in.
+            let random = ((i as f32 * 12.9898).sin() * 43_758.547).fract().abs();
+            let fling = Vec2::from_angle(random * TAU) * burst * 1.4 + vec2(0.0, burst * burst);
+            let angle = tangent.y.atan2(tangent.x) + (random - 0.5) * 8.0 * burst;
+            (space.to_screen(point(t) + fling), angle)
+        })
+        .collect();
+    // Links alternate between face-on rings and edge-on bars.
+    let draw_links = |offset: Vec2, thickness: f32, color: &dyn Fn(bool) -> Color| {
+        for (i, &(center, angle)) in links.iter().enumerate() {
+            let center = center + offset;
+            if i % 2 == 0 {
+                ellipse_ring(
+                    center,
+                    vec2(link * 0.55, link * 0.3) * c,
+                    angle,
+                    thickness,
+                    color(true),
+                );
+            } else {
+                let d = Vec2::from_angle(angle) * link * 0.45 * c;
+                polyline(&[center - d, center + d], thickness * 1.2, color(false));
+            }
+        }
+    };
+    draw_links(vec2(0.05, 0.09) * c, c * 0.1, &|_| {
+        Color::new(0.0, 0.0, 0.0, 0.3 * alpha)
+    });
+    draw_links(Vec2::ZERO, c * 0.1, &|_| faded(INK, alpha));
+    draw_links(Vec2::ZERO, c * 0.055, &|face_on| {
+        faded(
+            if face_on {
+                rgb(0x8d8999)
+            } else {
+                rgb(0xbdb8c9)
+            },
+            alpha,
+        )
+    });
 }

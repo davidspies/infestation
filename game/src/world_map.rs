@@ -60,6 +60,9 @@ struct NodeDef {
     #[serde(default)]
     level: Option<String>,
     pos: [f32; 2],
+    /// Levels that must all be completed before this node opens.
+    #[serde(default)]
+    requires: Vec<String>,
 }
 
 /// `[from, to]` or `[from, to, [waypoints...]]`.
@@ -147,6 +150,8 @@ pub(crate) struct Node {
     /// Center of the node in map cells.
     pub(crate) pos: Vec2,
     pub(crate) region: usize,
+    /// Levels that must all be completed before this node opens.
+    pub(crate) requires: Vec<&'static Level>,
 }
 
 impl Node {
@@ -155,6 +160,13 @@ impl Node {
             NodeKind::Level(level) => Some(level),
             NodeKind::Junction => None,
         }
+    }
+
+    /// Whether the node's requirements are met (a completed level stays
+    /// open regardless, for progress saved before a requirement existed).
+    fn open(&self, progress: &Progress) -> bool {
+        self.requires.iter().all(|l| progress.is_completed(l.name))
+            || self.level().is_some_and(|l| progress.is_completed(l.name))
     }
 
     /// Whether the hero can walk through this node.
@@ -264,7 +276,21 @@ impl WorldMap {
                     ),
                     None => NodeKind::Junction,
                 };
-                Node { kind, pos, region }
+                let requires = n
+                    .requires
+                    .iter()
+                    .map(|name| {
+                        levels::get_level(name).unwrap_or_else(|| {
+                            panic!("map node {} requires unknown level {name}", n.id)
+                        })
+                    })
+                    .collect();
+                Node {
+                    kind,
+                    pos,
+                    region,
+                    requires,
+                }
             })
             .collect();
         let index = |id: &str| {
@@ -305,8 +331,15 @@ impl WorldMap {
             edges,
             props: file.props,
         };
-        for node in 0..map.nodes.len() {
+        for (node, n) in map.nodes.iter().enumerate() {
             map.exits(node);
+            for level in &n.requires {
+                assert!(
+                    map.node_of_level(level.name).is_some(),
+                    "map node {node} requires {}, which isn't on the map",
+                    level.name
+                );
+            }
         }
         map
     }
@@ -322,6 +355,27 @@ impl WorldMap {
             .unwrap_or_else(|| panic!("map nodes {a} and {b} aren't adjacent"))
     }
 
+    /// The chains still locking nodes: `[required level's node, locked
+    /// node]` for each requirement not yet met.
+    pub(crate) fn chains(&self, progress: &Progress) -> Vec<[usize; 2]> {
+        self.nodes
+            .iter()
+            .enumerate()
+            .filter(|(_, node)| !node.open(progress))
+            .flat_map(|(locked, node)| {
+                node.requires
+                    .iter()
+                    .filter(|level| !progress.is_completed(level.name))
+                    .map(move |level| {
+                        let key = self
+                            .node_of_level(level.name)
+                            .expect("required levels are on the map");
+                        [key, locked]
+                    })
+            })
+            .collect()
+    }
+
     /// Which nodes the hero can walk to.
     pub(crate) fn reachable(&self, progress: &Progress) -> Vec<bool> {
         let mut reached = vec![false; self.nodes.len()];
@@ -329,7 +383,7 @@ impl WorldMap {
         let mut queue = VecDeque::from([self.start]);
         while let Some(node) = queue.pop_front() {
             for next in self.edges_at(node).map(|e| e.other(node)) {
-                if !reached[next] {
+                if !reached[next] && self.nodes[next].open(progress) {
                     reached[next] = true;
                     if self.nodes[next].passable(progress) {
                         queue.push_back(next);
@@ -480,10 +534,49 @@ mod tests {
         assert!(!reachable_levels(&progress).contains(&"triggers"));
         let progress = Progress::with_completed(cellar.into_iter().chain(["blackhole_v2"]));
         let reachable = reachable_levels(&progress);
-        for level in ["triggers", "explosives", "triggering_explosives_v3"] {
+        for level in ["triggers", "explosives"] {
             assert!(reachable.contains(&level), "{level} should be open");
         }
         assert!(!reachable.contains(&"order_of_operations_new_v2"));
+    }
+
+    #[test]
+    fn countdown_waits_for_the_trigger_and_explosive_levels() {
+        let cellar = ["rats", "more_rats", "webs", "planks", "blackhole_v2"];
+        let some = Progress::with_completed(cellar.into_iter().chain(["triggers", "explosives"]));
+        assert!(!reachable_levels(&some).contains(&"triggering_explosives_v3"));
+        let all = Progress::with_completed(cellar.into_iter().chain([
+            "triggers",
+            "explosives",
+            "explosives2",
+        ]));
+        assert!(reachable_levels(&all).contains(&"triggering_explosives_v3"));
+    }
+
+    #[test]
+    fn chains_lead_from_each_unmet_requirement_to_its_lock() {
+        let map = &*WORLD_MAP;
+        let node = |name| map.node_of_level(name).unwrap();
+        let countdown = node("triggering_explosives_v3");
+        let cellar = ["rats", "more_rats", "webs", "planks", "blackhole_v2"];
+        let mut chains = map.chains(&Progress::with_completed(cellar));
+        chains.sort();
+        let mut expected = [
+            [node("triggers"), countdown],
+            [node("explosives"), countdown],
+            [node("explosives2"), countdown],
+        ];
+        expected.sort();
+        assert_eq!(chains, expected);
+        let progress =
+            Progress::with_completed(cellar.into_iter().chain(["triggers", "explosives"]));
+        assert_eq!(map.chains(&progress), [[node("explosives2"), countdown]]);
+        let progress = Progress::with_completed(cellar.into_iter().chain([
+            "triggers",
+            "explosives",
+            "explosives2",
+        ]));
+        assert!(map.chains(&progress).is_empty());
     }
 
     #[test]
@@ -494,6 +587,9 @@ mod tests {
             "webs",
             "planks",
             "blackhole_v2",
+            "triggers",
+            "explosives",
+            "explosives2",
             "triggering_explosives_v3",
             "order_of_operations_new_v2",
         ]);
