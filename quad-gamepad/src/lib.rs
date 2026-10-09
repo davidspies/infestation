@@ -257,7 +257,11 @@ impl GamepadContext {
         while let Some(Event { id, event, .. }) = gilrs.next_event() {
             match event {
                 EventType::Connected => {
-                    connect(&mut self.gilrs_mapping, &mut self.gamepads, gilrs.gamepad(id));
+                    connect(
+                        &mut self.gilrs_mapping,
+                        &mut self.gamepads,
+                        gilrs.gamepad(id),
+                    );
                 }
                 EventType::Disconnected => {
                     if let Some(&slot) = self.gilrs_mapping.get(&id) {
