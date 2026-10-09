@@ -174,6 +174,7 @@ impl GamepadState {
         self.connected = connected;
         if !connected {
             self.buttons_down.clear();
+            self.axes.clear();
         }
     }
 
@@ -211,15 +212,8 @@ impl GamepadContext {
 
         #[cfg(not(target_arch = "wasm32"))]
         if let Some(ref gilrs) = ctx.gilrs {
-            for (id, gamepad) in gilrs.gamepads() {
-                if gamepad.is_connected() {
-                    let slot = ctx.gilrs_mapping.len();
-                    if slot < 4 {
-                        ctx.gilrs_mapping.insert(id, slot);
-                        ctx.gamepads[slot].connected = true;
-                        ctx.gamepads[slot].controller_type = controller_type_from_gamepad(&gamepad);
-                    }
-                }
+            for (_, gamepad) in gilrs.gamepads() {
+                connect(&mut ctx.gilrs_mapping, &mut ctx.gamepads, gamepad);
             }
         }
 
@@ -263,16 +257,7 @@ impl GamepadContext {
         while let Some(Event { id, event, .. }) = gilrs.next_event() {
             match event {
                 EventType::Connected => {
-                    if !self.gilrs_mapping.contains_key(&id) {
-                        let slot = self.gilrs_mapping.len();
-                        if slot < 4 {
-                            self.gilrs_mapping.insert(id, slot);
-                            self.gamepads[slot].set_connected(true);
-                            let gp = gilrs.gamepad(id);
-                            self.gamepads[slot]
-                                .set_controller_type(controller_type_from_gamepad(&gp));
-                        }
-                    }
+                    connect(&mut self.gilrs_mapping, &mut self.gamepads, gilrs.gamepad(id));
                 }
                 EventType::Disconnected => {
                     if let Some(&slot) = self.gilrs_mapping.get(&id) {
@@ -374,6 +359,26 @@ impl GamepadContext {
             });
         }
     }
+}
+
+/// Marks a gamepad connected, giving it the next free slot the first time
+/// it's seen. gilrs gives a reconnecting gamepad its old id, so it gets its
+/// old slot back.
+#[cfg(not(target_arch = "wasm32"))]
+fn connect(
+    mapping: &mut HashMap<gilrs::GamepadId, usize>,
+    gamepads: &mut [GamepadState; 4],
+    gamepad: gilrs::Gamepad,
+) {
+    let id = gamepad.id();
+    if !mapping.contains_key(&id) && mapping.len() < gamepads.len() {
+        mapping.insert(id, mapping.len());
+    }
+    let Some(&slot) = mapping.get(&id) else {
+        return;
+    };
+    gamepads[slot].set_connected(true);
+    gamepads[slot].set_controller_type(controller_type_from_gamepad(&gamepad));
 }
 
 #[cfg(not(target_arch = "wasm32"))]
