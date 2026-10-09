@@ -104,9 +104,12 @@ impl MapScene {
         if ctx.hints != InputHints::Touch {
             self.draw_exits(space);
         }
-        self.draw_labels(sprites, space, layout.s);
+        let labels = self.labels(sprites, space, layout.s);
         self.fx.draw_over(sprites, space);
-        self.draw_banners(sprites, space, layout.s);
+        self.draw_banners(sprites, space, layout.s, &labels);
+        for label in &labels {
+            draw_label(sprites, label, layout.s);
+        }
         self.draw_fog(sprites, space, layout.s);
         self.draw_panel(ctx, layout);
     }
@@ -234,14 +237,15 @@ impl MapScene {
             }
         }
     }
-    /// Names over the selected node and the one under the mouse.
-    fn draw_labels(&self, sprites: &Sprites, space: BoardSpace, s: f32) {
+    /// Name tags for the selected level and the one under the pointer.
+    fn labels(&self, sprites: &Sprites, space: BoardSpace, s: f32) -> Vec<Label> {
         let map = &*WORLD_MAP;
         let hovered = ui::hover_pos().and_then(|p| {
             map.nodes.iter().position(|n| {
                 n.level().is_some() && space.to_screen(n.pos).distance(p) < space.cell * 0.8
             })
         });
+        let mut labels = Vec::new();
         for node in [Some(self.selected), hovered].into_iter().flatten() {
             let Some(level) = map.nodes[node].level() else {
                 continue;
@@ -262,9 +266,7 @@ impl MapScene {
                     None => unreachable!("requirements are non-empty"),
                 }
             };
-            let name = name.as_str();
-            let size = 17.0 * s;
-            let w = text::width(sprites, name, Face::Display, size) + 20.0 * s;
+            let w = text::width(sprites, &name, Face::Display, LABEL_SIZE * s) + 20.0 * s;
             let h = 28.0 * s;
             // Above the medallion, unless that's where an exit arrow is.
             let center = space.to_screen(map.nodes[node].pos);
@@ -274,33 +276,13 @@ impl MapScene {
                 (true, true) => center - vec2(0.0, offset + space.cell * 0.9),
                 (false, _) => center - vec2(0.0, offset),
             };
-            let rect = Rect::new(anchor.x - w / 2.0, anchor.y - h / 2.0, w, h);
-            rounded_rect(
-                Rect::new(rect.x, rect.y + 3.0 * s, rect.w, rect.h),
-                h / 2.0,
-                faded(INK, 0.5),
-            );
-            rounded_rect(rect, h / 2.0, rgb(0x231e2e));
-            crate::render::shapes::rounded_rect_outline(
-                rect,
-                h / 2.0,
-                1.5 * s,
-                if node == self.selected {
-                    GOLD
-                } else {
-                    faded(TEXT_DIM, 0.6)
-                },
-            );
-            text::draw_aligned(
-                sprites,
+            labels.push(Label {
+                rect: Rect::new(anchor.x - w / 2.0, anchor.y - h / 2.0, w, h),
                 name,
-                rect.center(),
-                Align::Center,
-                Face::Display,
-                size,
-                TEXT,
-            );
+                selected: node == self.selected,
+            });
         }
+        labels
     }
     /// Chains from each level still to be cleared to the node it keeps
     /// locked, plus any chains shattering because they just came free.
@@ -390,7 +372,7 @@ impl MapScene {
             WHITE,
         );
     }
-    fn draw_banners(&self, sprites: &Sprites, space: BoardSpace, s: f32) {
+    fn draw_banners(&self, sprites: &Sprites, space: BoardSpace, s: f32, labels: &[Label]) {
         let map = &*WORLD_MAP;
         for (i, region) in map.regions.iter().enumerate() {
             if !map.region_revealed(i, &self.reached) {
@@ -402,14 +384,25 @@ impl MapScene {
             let w = text::width(sprites, &region.name, Face::Display, size) + size * 1.6;
             let h = size * 1.6;
             let banner = Rect::new(at.x - w / 2.0, at.y - h / 2.0, w, h);
+            // Make way for a level's name tag.
+            let alpha = if labels.iter().any(|l| l.rect.overlaps(&banner)) {
+                0.15
+            } else {
+                1.0
+            };
             rounded_rect(
                 Rect::new(banner.x, banner.y + 3.0, banner.w, banner.h),
                 h * 0.3,
-                faded(INK, 0.6),
+                faded(INK, 0.6 * alpha),
             );
             let color = self.palettes[region.theme].motes;
-            rounded_rect(banner, h * 0.3, rgb(0x2a2234));
-            crate::render::shapes::rounded_rect_outline(banner, h * 0.3, 2.0, faded(color, 0.8));
+            rounded_rect(banner, h * 0.3, faded(rgb(0x2a2234), alpha));
+            crate::render::shapes::rounded_rect_outline(
+                banner,
+                h * 0.3,
+                2.0,
+                faded(color, 0.8 * alpha),
+            );
             text::draw_aligned(
                 sprites,
                 &region.name,
@@ -417,7 +410,7 @@ impl MapScene {
                 Align::Center,
                 Face::Display,
                 size,
-                TEXT,
+                faded(TEXT, alpha),
             );
         }
     }
@@ -607,6 +600,46 @@ impl MapScene {
         }
         self.play_button(ctx, layout).draw(sprites, s);
     }
+}
+
+/// Text size of a level's name tag, before scaling.
+const LABEL_SIZE: f32 = 17.0;
+
+/// A level's name tag on the map.
+struct Label {
+    rect: Rect,
+    name: String,
+    /// Whether it's for the selected level (rather than one under the pointer).
+    selected: bool,
+}
+
+fn draw_label(sprites: &Sprites, label: &Label, s: f32) {
+    let rect = label.rect;
+    rounded_rect(
+        Rect::new(rect.x, rect.y + 3.0 * s, rect.w, rect.h),
+        rect.h / 2.0,
+        faded(INK, 0.5),
+    );
+    rounded_rect(rect, rect.h / 2.0, rgb(0x231e2e));
+    crate::render::shapes::rounded_rect_outline(
+        rect,
+        rect.h / 2.0,
+        1.5 * s,
+        if label.selected {
+            GOLD
+        } else {
+            faded(TEXT_DIM, 0.6)
+        },
+    );
+    text::draw_aligned(
+        sprites,
+        &label.name,
+        rect.center(),
+        Align::Center,
+        Face::Display,
+        LABEL_SIZE * s,
+        TEXT,
+    );
 }
 
 /// A miniature of a level's layout.

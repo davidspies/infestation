@@ -97,6 +97,18 @@ static LOSE_LEVELS: std::sync::LazyLock<Vec<(levels::Level, Action)>> =
         .collect()
     });
 
+/// Every level on the map cleared, with `last` cleared last (where the hero
+/// stands).
+fn all_cleared_at(last: &'static str) -> Vec<&'static str> {
+    crate::world_map::WORLD_MAP
+        .nodes
+        .iter()
+        .filter_map(|n| Some(n.level()?.name))
+        .filter(|&l| l != last)
+        .chain([last])
+        .collect()
+}
+
 /// The shortest single-player solution to a level, by breadth-first search.
 fn solve(level: &levels::Level) -> Vec<Action> {
     use std::collections::{HashSet, VecDeque};
@@ -525,6 +537,13 @@ fn screenshots() {
                     "order_of_operations_new_v2",
                     "chase",
                 ],
+                None,
+            ),
+            // Everything cleared, standing on the Archive's top level, whose
+            // name tag meets the region's banner.
+            (
+                "map_archive",
+                all_cleared_at("old_levels/order_of_operations"),
                 None,
             ),
         ] {
