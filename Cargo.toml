@@ -1,3 +1,9 @@
 [workspace]
 members = ["game", "quad-gamepad", "quad-touch", "scenario_tests"]
+exclude = ["vendor"]
 resolver = "2"
+
+# quad-snd with a smaller ALSA buffer, so sounds start ~25 ms after they're
+# played instead of ~140 ms (Linux only). See vendor/quad-snd/src/alsa_snd.rs.
+[patch.crates-io]
+quad-snd = { path = "vendor/quad-snd" }

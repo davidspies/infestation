@@ -12,7 +12,11 @@ mod consts {
     pub const DEVICES: &[&str] = &["default\0", "pipewire\0"];
     pub const RATE: u32 = 44100;
     pub const CHANNELS: u32 = 2;
-    pub const PCM_BUFFER_SIZE: ::std::os::raw::c_ulong = 4096;
+    // Infestation patch: upstream buffers 4096 frames and mixes 4096 at a
+    // time, so a new sound waited ~140 ms (up to ~185 ms) to be heard. A
+    // 1024-frame buffer mixed 256 frames at a time brings that to ~25 ms.
+    pub const PCM_BUFFER_SIZE: ::std::os::raw::c_ulong = 1024;
+    pub const PCM_CHUNK_SIZE: ::std::os::raw::c_ulong = 256;
 }
 
 unsafe fn setup_pcm_device() -> *mut sys::snd_pcm_t {
@@ -99,14 +103,20 @@ unsafe fn setup_pcm_device() -> *mut sys::snd_pcm_t {
 }
 
 unsafe fn audio_thread(mut mixer: crate::mixer::Mixer) {
-    let mut buffer: Vec<f32> = vec![0.0; consts::PCM_BUFFER_SIZE as usize * 2];
+    let mut buffer: Vec<f32> = vec![0.0; consts::PCM_CHUNK_SIZE as usize * 2];
 
     let pcm_handle = setup_pcm_device();
 
     loop {
         // Wait for PCM to be ready for next write (no timeout)
-        if sys::snd_pcm_wait(pcm_handle, -1) < 0 {
-            panic!("PCM device is not ready");
+        let waited = sys::snd_pcm_wait(pcm_handle, -1);
+        if waited < 0 {
+            // Infestation patch: the small buffer can underrun (say, while a
+            // long track loads). Recover instead of killing the audio thread.
+            if sys::snd_pcm_recover(pcm_handle, waited, 0) < 0 {
+                panic!("PCM device is not ready");
+            }
+            continue;
         }
 
         // // find out how much space is available for playback data
@@ -122,7 +132,7 @@ unsafe fn audio_thread(mut mixer: crate::mixer::Mixer) {
         //     frames_to_deliver
         // };
 
-        let frames_to_deliver = consts::PCM_BUFFER_SIZE as i64;
+        let frames_to_deliver = consts::PCM_CHUNK_SIZE as i64;
 
         // ask mixer to fill the buffer
         mixer.fill_audio_buffer(&mut buffer, frames_to_deliver as usize);
