@@ -28,38 +28,50 @@ jobs:
       - name: Build WASM
         run: cargo build --target wasm32-unknown-unknown --release
 
-      # build.rs downloads the fonts and miniquad's JS. Sprites, textures,
-      # sound effects and levels are embedded in the wasm; music streams in
-      # (MP3 on the web, which every browser decodes).
-      - name: Prepare deployment
-        run: |
-          mkdir -p dist/assets/music
-          cp index.html dist/
-          cp -r js dist/
-          cp assets/music/*.mp3 dist/assets/music/
-          cp target/wasm32-unknown-unknown/release/infestation.wasm dist/
-          # Update wasm path in index.html for deployment
-          sed -i 's|target/wasm32-unknown-unknown/release/||' dist/index.html
-
-      # The original version, from before the visual overhaul, served at
-      # /classic/ for comparison. Its build.rs downloads its font and JS.
-      - name: Check out the classic version
+      # Two snapshots for before/after comparisons, served at /before/ and
+      # /after/ but not linked from the game: the original, and the
+      # overhaul exactly as first committed, before any follow-up fixes.
+      # Each version's build.rs downloads its own fonts and JS.
+      - name: Check out the before version
         uses: actions/checkout@v4
         with:
           ref: bb566d6ef7b127dbb2696de0bb07dd1689e7d0e9
-          path: classic
+          path: before
 
-      - name: Build the classic version
-        working-directory: classic
+      - name: Build the before version
+        working-directory: before
         run: cargo build --target wasm32-unknown-unknown --release
 
-      - name: Add the classic version
+      - name: Check out the after version
+        uses: actions/checkout@v4
+        with:
+          ref: 6d90c2dbf8c1961f0960f6526dd0e18e87e97492
+          path: after
+
+      - name: Build the after version
+        working-directory: after
+        run: cargo build --target wasm32-unknown-unknown --release
+
+      - name: Prepare deployment
         run: |
-          mkdir -p dist/classic
-          cp classic/index.html dist/classic/
-          cp -r classic/js classic/assets dist/classic/
-          cp classic/target/wasm32-unknown-unknown/release/infestation.wasm dist/classic/
-          sed -i 's|target/wasm32-unknown-unknown/release/||' dist/classic/index.html
+          # The overhauled game embeds its sprites, textures, sound effects
+          # and levels in the wasm; music streams in (MP3 on the web, which
+          # every browser decodes).
+          package() {
+            mkdir -p "$2/assets/music"
+            cp -r "$1/index.html" "$1/js" "$2/"
+            cp "$1"/assets/music/*.mp3 "$2/assets/music/"
+            cp "$1/target/wasm32-unknown-unknown/release/infestation.wasm" "$2/"
+          }
+          package . dist
+          package after dist/after
+          # The original loads its assets at runtime.
+          mkdir -p dist/before
+          cp -r before/index.html before/js before/assets dist/before/
+          cp before/target/wasm32-unknown-unknown/release/infestation.wasm dist/before/
+          # Each page loads its wasm from the same directory once deployed.
+          sed -i 's|target/wasm32-unknown-unknown/release/||' \
+            dist/index.html dist/after/index.html dist/before/index.html
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
