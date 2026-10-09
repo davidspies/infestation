@@ -23,7 +23,9 @@ enum-map = "*"
 flate2 = "*"
 jpeg-decoder = "*"
 log = "*"
-macroquad = { version = "*", features = ["audio"] }
+# Pinned for the unreleased fix to spurious font atlas growth (text: avoid
+# spurious font atlas growth). Back to a release once one includes it.
+macroquad = { git = "https://github.com/not-fl3/macroquad", rev = "8d602d3f8ebb8a3a582ee15d92983bbb81ee3ef6", features = ["audio"] }
 quad-gamepad = { path = "../quad-gamepad" }
 quad-url = "*"
 serde = { version = "*", features = ["derive"] }
