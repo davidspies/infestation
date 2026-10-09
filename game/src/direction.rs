@@ -26,11 +26,6 @@ impl Dir4 {
         }
     }
 
-    /// The direction of a single-cell step, if the delta is one.
-    pub(crate) fn from_delta(delta: PositionDelta) -> Option<Dir4> {
-        Dir4::all().into_iter().find(|dir| dir.delta() == delta)
-    }
-
     pub(crate) fn opposite(self) -> Dir8 {
         match self {
             Dir4::North => Dir8::South,

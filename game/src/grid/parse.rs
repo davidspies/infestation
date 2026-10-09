@@ -16,13 +16,11 @@ pub(crate) enum NoteText {
     ByPlatform {
         controller: String,
         keyboard: String,
-        mobile: String,
     },
     TwoPlayer {
         keyboard_only: String,
         one_controller: String,
         two_controllers: String,
-        mobile: String,
     },
 }
 
@@ -33,21 +31,16 @@ impl NoteText {
             NoteText::ByPlatform {
                 controller,
                 keyboard,
-                mobile,
             } => match hints {
                 InputHints::Controller(_) => controller,
-                InputHints::Touch => mobile,
                 InputHints::Keyboard => keyboard,
             },
             NoteText::TwoPlayer {
                 keyboard_only,
                 one_controller,
                 two_controllers,
-                mobile,
             } => {
-                if matches!(hints, InputHints::Touch) {
-                    mobile
-                } else if gamepad_count >= 2 {
+                if gamepad_count >= 2 {
                     two_controllers
                 } else if gamepad_count == 1 {
                     one_controller

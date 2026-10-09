@@ -8,7 +8,6 @@ use super::MapScene;
 use crate::atlas::SpriteId;
 use crate::direction::Dir4;
 use crate::grid::{Cell, Player};
-use crate::input::InputHints;
 use crate::levels::Level;
 use crate::position::Position;
 use crate::progress::Progress;
@@ -101,9 +100,7 @@ impl MapScene {
         self.draw_chains(space, ctx.progress);
         self.draw_nodes(sprites, space, ctx.progress);
         self.draw_hero(sprites, space);
-        if ctx.hints != InputHints::Touch {
-            self.draw_exits(space);
-        }
+        self.draw_exits(space);
         let labels = self.labels(sprites, space, layout.s);
         self.fx.draw_over(sprites, space);
         self.draw_banners(sprites, space, layout.s, &labels);
@@ -240,8 +237,8 @@ impl MapScene {
     /// Name tags for the selected level and the one under the pointer.
     fn labels(&self, sprites: &Sprites, space: BoardSpace, s: f32) -> Vec<Label> {
         let map = &*WORLD_MAP;
-        let hovered = ui::hover_pos()
-            .and_then(|p| self.node_at(space, p))
+        let hovered = self
+            .node_at(space, Vec2::from(mouse_position()))
             .filter(|&n| map.nodes[n].level().is_some());
         let mut labels = Vec::new();
         for node in [Some(self.selected), hovered].into_iter().flatten() {

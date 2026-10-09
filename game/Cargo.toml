@@ -25,7 +25,6 @@ jpeg-decoder = "*"
 log = "*"
 macroquad = { version = "*", features = ["audio"] }
 quad-gamepad = { path = "../quad-gamepad" }
-quad-touch = { path = "../quad-touch" }
 quad-url = "*"
 serde = { version = "*", features = ["derive"] }
 serde_json = "*"

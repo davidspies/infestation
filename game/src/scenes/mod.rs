@@ -39,17 +39,14 @@ pub(crate) struct FrameInput {
     pub(crate) pointer: Vec<PointerEvent>,
     /// Mouse wheel (or trackpad) scrolling, in notches; positive scrolls up.
     pub(crate) wheel: f32,
-    /// Any key, button, click or tap (for "press any key").
+    /// Any key, button or click (for "press any key").
     pub(crate) any: bool,
 }
 
 impl FrameInput {
-    /// Taps and clicks this frame (not swipes or drags).
-    pub(crate) fn taps(&self) -> impl Iterator<Item = Vec2> + '_ {
-        self.pointer.iter().filter_map(|e| match e.gesture()? {
-            crate::input::TouchGesture::Tap(pos) => Some(pos),
-            crate::input::TouchGesture::Swipe(_) => None,
-        })
+    /// Clicks this frame (not drags).
+    pub(crate) fn clicks(&self) -> impl Iterator<Item = Vec2> + '_ {
+        self.pointer.iter().filter_map(|e| e.click())
     }
 
     pub(crate) fn confirmed(&self) -> bool {

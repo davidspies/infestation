@@ -346,70 +346,6 @@ def rat_head(c):
             c.stroke()
 
 
-def hand(c, x, y, s=1.0, cutout=True):
-    """Pointing hand (index finger up), fingertip at (x, y)."""
-    c.save()
-    c.translate(x, y)
-    c.scale(s, s)
-    c.new_path()
-    rounded_rect(c, -9, 0, 18, 56, 9)  # index finger
-    c.fill()
-    c.new_path()
-    smooth_path(c, [(-14, 34), (-30, 42), (-26, 62), (-18, 84), (6, 90), (28, 84), (36, 62), (34, 40), (10, 34)], tension=0.8)
-    c.fill()
-    # curled fingers bumps
-    for k, bx in enumerate((14, 26)):
-        c.new_path()
-        ellipse(c, bx, 40 + k * 3, 9, 11)
-        c.fill()
-    if cutout:
-        c.set_operator(cairo.OPERATOR_CLEAR)
-        c.set_line_width(3.5)
-        for bx in (8, 20):
-            c.new_path()
-            c.move_to(bx, 34)
-            c.line_to(bx, 48)
-            c.stroke()
-        c.new_path()
-        c.move_to(-9, 52)
-        c.curve_to(-14, 56, -20, 60, -22, 66)
-        c.stroke()
-    c.restore()
-
-
-def swipe(c):
-    hand(c, 70, 30, 0.9)
-    c.set_line_width(8)
-    for k, y in enumerate((30, 48, 66)):
-        c.new_path()
-        c.move_to(16 + k * 4, y)
-        c.line_to(40 + k * 2, y)
-        c.stroke()
-
-
-def drag(c):
-    hand(c, 84, 40, 0.8)
-    c.save()
-    c.set_line_width(8)
-    c.set_dash([0.1, 14])
-    c.new_path()
-    smooth_path(c, [(18, 104), (30, 70), (52, 56), (70, 44)], closed=False)
-    c.stroke()
-    c.restore()
-    c.new_path()
-    ellipse(c, 18, 104, 7)
-    c.fill()
-
-
-def tap(c):
-    hand(c, 64, 44, 0.8)
-    c.set_line_width(7)
-    for r in (14, 26):
-        c.new_path()
-        c.arc(64, 44, r, math.radians(205), math.radians(335))
-        c.stroke()
-
-
 def players(c):
     # back figure (right), cut a gap, then front figure (left)
     c.new_path()
@@ -549,9 +485,6 @@ NAMES = {
     "skull": skull,
     "sword": sword,
     "rat": rat,
-    "swipe": swipe,
-    "drag": drag,
-    "tap": tap,
     "players": players,
     "export": export,
     "import": import_,

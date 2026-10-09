@@ -5,12 +5,10 @@ use enum_map::EnumMap;
 use macroquad::prelude::*;
 
 use crate::audio::Sfx;
-use crate::direction::Dir4;
 use crate::game::{Action, Death, Game, PlayState};
 use crate::grid::{Cell, Player};
-use crate::input::{MetaInput, PlayerInput, PointerEvent, TouchGesture};
+use crate::input::{MetaInput, PlayerInput};
 use crate::levels::Level;
-use crate::path::{NextMove, PathDrag, PathFollower};
 use crate::position::Position;
 use crate::progress::Progress;
 use crate::render::board::{self, BoardLayout, BoardView, Facings};
@@ -68,10 +66,6 @@ pub(crate) struct LevelScene {
     game: Game,
     facings: Facings,
     fx: Fx,
-    /// Path being dragged out with a finger or mouse button held down.
-    drag: Option<PathDrag>,
-    /// Active paths the players are following.
-    paths: EnumMap<Player, Option<PathFollower>>,
     /// Per-player buffered actions (sync or immediate).
     pending: EnumMap<Player, Option<PendingAction>>,
     /// Time elapsed since the first pending action was set, for the 2P grace period.
@@ -107,8 +101,6 @@ impl LevelScene {
             game,
             facings,
             fx: Fx::default(),
-            drag: None,
-            paths: EnumMap::default(),
             pending: EnumMap::default(),
             pending_timer: 0.0,
             time: 0.0,
@@ -183,18 +175,11 @@ impl LevelScene {
     /// Reset presentation after undo/restart.
     fn after_rewind(&mut self) {
         self.pending = EnumMap::default();
-        self.clear_paths();
         self.fx.clear();
         self.facings.snap(&self.game.state.grid);
         self.ended = None;
         self.death = None;
         self.restart_armed = None;
-    }
-
-    /// Drop the in-progress drag and all paths being followed.
-    fn clear_paths(&mut self) {
-        self.drag = None;
-        self.paths = EnumMap::default();
     }
 
     pub(crate) fn update(
@@ -208,29 +193,7 @@ impl LevelScene {
         let board = self.board_layout(layout);
         let hud = self.hud(ctx, layout);
 
-        // Touch/mouse: a drag starting on a player drags out a path for it
-        // to follow; swipes move player 1; taps hit buttons.
-        let mut swipe = None;
-        let mut taps = Vec::new();
-        for &event in &input.pointer {
-            match event {
-                PointerEvent::Down(pos) => self.pointer_down(board, pos),
-                PointerEvent::Moved(pos) => self.pointer_moved(board, pos),
-                PointerEvent::Up { .. } => {
-                    if let Some(drag) = self.drag.take() {
-                        let player = drag.player;
-                        self.paths[player] = drag.into_follower();
-                    } else {
-                        match event.gesture() {
-                            Some(TouchGesture::Swipe(dir)) => swipe = Some(dir),
-                            Some(TouchGesture::Tap(pos)) => taps.push(pos),
-                            None => {}
-                        }
-                    }
-                }
-            }
-        }
-        let mut actions: Vec<UiAction> = taps.iter().filter_map(|&p| hud.hit(p)).collect();
+        let mut actions: Vec<UiAction> = input.clicks().filter_map(|p| hud.hit(p)).collect();
         for meta in &input.meta {
             let action = match meta {
                 MetaInput::Undo => Some(UiAction::Undo),
@@ -246,7 +209,7 @@ impl LevelScene {
         }
 
         let mut request = None;
-        let mut wait_tapped = false;
+        let mut wait_clicked = false;
         for action in actions {
             match action {
                 UiAction::Undo => self.undo(ctx),
@@ -269,7 +232,7 @@ impl LevelScene {
                         before: self.progress_before.take(),
                     });
                 }
-                UiAction::Wait => wait_tapped = true,
+                UiAction::Wait => wait_clicked = true,
                 UiAction::Solution => {
                     let csv = self.game.state.initial_grid.to_csv();
                     self.solution = Some(crate::solution::encode_solution(
@@ -282,7 +245,7 @@ impl LevelScene {
         }
 
         if self.play_state() == PlayState::Playing && request.is_none() {
-            self.queue_player_input(input, swipe, wait_tapped);
+            self.queue_player_input(input, wait_clicked);
         }
         self.try_execute_pending();
         self.advance_pending_timer(dt);
@@ -302,16 +265,9 @@ impl LevelScene {
         request
     }
 
-    fn queue_player_input(&mut self, input: &FrameInput, swipe: Option<Dir4>, wait_tapped: bool) {
+    fn queue_player_input(&mut self, input: &FrameInput, wait_clicked: bool) {
         let mut player_actions = input.players;
-        if let Some(dir) = swipe {
-            player_actions[Player::Player1] = Some(PlayerInput {
-                action: Action::Move(dir),
-                synced: false,
-                fresh: true,
-            });
-        }
-        if wait_tapped {
+        if wait_clicked {
             let stall = PlayerInput {
                 action: Action::Stall,
                 synced: false,
@@ -321,7 +277,6 @@ impl LevelScene {
                 *action = action.or(Some(stall));
             }
         }
-        self.feed_path_moves(&mut player_actions);
         let player_count = self.game.state.player_count();
         for (player, player_action) in player_actions.iter().take(player_count) {
             if let Some(input) = player_action {
@@ -334,68 +289,6 @@ impl LevelScene {
                 // Key was released — clear held-repeat pending so it doesn't
                 // fire as a stale buffered move after animation finishes.
                 self.pending[player] = None;
-            }
-        }
-    }
-
-    /// A finger/mouse press: stops any path being followed, and starts a
-    /// path drag if it lands on a player.
-    fn pointer_down(&mut self, board: BoardLayout, pos: Vec2) {
-        self.clear_paths();
-        if self.play_state() != PlayState::Playing {
-            return;
-        }
-        let Some(cell) = board.screen_to_cell(pos) else {
-            return;
-        };
-        if let Some((player, _)) = self.game.state.grid.at(cell).as_player() {
-            self.drag = Some(PathDrag::new(player, cell));
-        }
-    }
-
-    fn pointer_moved(&mut self, board: BoardLayout, pos: Vec2) {
-        let Some(drag) = &mut self.drag else {
-            return;
-        };
-        let Some(cell) = board.screen_to_cell(pos) else {
-            return;
-        };
-        let grid = &self.game.state.grid;
-        // Only walls are undrawable; anything else (planks included)
-        // might be gone by the time the player gets there.
-        drag.extend_to(cell, |p| grid.at(p) == Cell::Wall);
-    }
-
-    /// Feed the next move from each player's active path into this frame's
-    /// actions. Manual input for a player abandons that player's path, as
-    /// does a wall ahead or the player having strayed off the path.
-    fn feed_path_moves(&mut self, player_actions: &mut EnumMap<Player, Option<PlayerInput>>) {
-        for (player, follower) in self.paths.iter_mut() {
-            let Some(active) = follower else {
-                continue;
-            };
-            if player_actions[player].is_some() {
-                *follower = None;
-                continue;
-            }
-            if self.game.is_animating() || self.pending[player].is_some() {
-                continue;
-            }
-            let next = self
-                .game
-                .state
-                .player_position(player)
-                .map(|pos| (pos, active.next_move(pos)));
-            if let Some((pos, NextMove::Move(dir))) = next
-                && !self.game.state.grid.at(pos + dir.delta()).blocks_player()
-            {
-                player_actions[player] = Some(PlayerInput {
-                    action: Action::Move(dir),
-                    synced: false,
-                    fresh: true,
-                });
-            } else {
-                *follower = None;
             }
         }
     }
@@ -484,17 +377,6 @@ impl LevelScene {
             .collect()
     }
 
-    /// Paths to draw: the one being dragged out, plus what's left of each
-    /// player's followed path.
-    fn path_overlays(&self) -> Vec<(Player, Vec<Position>)> {
-        let drag = self.drag.iter().map(|d| (d.player, d.cells.clone()));
-        let following = self.paths.iter().filter_map(|(player, follower)| {
-            let pos = self.game.state.player_position(player)?;
-            Some((player, follower.as_ref()?.preview(pos)))
-        });
-        drag.chain(following).collect()
-    }
-
     fn update_outcome(&mut self, ctx: &mut Ctx, layout: &ScreenLayout) {
         match (self.outcome(), self.ended) {
             (Some(state), None) => {
@@ -547,7 +429,6 @@ impl LevelScene {
         let sprites = ctx.sprites;
         let board = self.board_layout(layout);
         draw_backdrop(&self.palette, layout.main.center());
-        let paths = self.path_overlays();
         let ghosts = self.pending_ghosts();
         board::draw(
             sprites,
@@ -558,7 +439,6 @@ impl LevelScene {
                 fx: &self.fx,
                 palette: &self.palette,
                 time: self.time,
-                paths: &paths,
                 ghosts: &ghosts,
             },
         );

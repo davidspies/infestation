@@ -45,7 +45,7 @@ CONTRACT = (
         (f"icon_{n}", 128)
         for n in (
             "undo restart wait map menu gear music sound mute lock check star play close skull sword "
-            "rat swipe drag tap players export import trophy chevron door"
+            "rat players export import trophy chevron door"
         ).split()
     ]
     + [("portrait_hero1", 256), ("portrait_hero2", 256)]

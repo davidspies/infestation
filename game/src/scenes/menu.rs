@@ -162,20 +162,20 @@ impl Menu {
             return self.choose(self.items[self.focus], ctx);
         }
         let (card, rows) = self.rows(layout);
-        for tap in input.taps() {
-            if !card.contains(tap) {
+        for click in input.clicks() {
+            if !card.contains(click) {
                 ctx.audio.play(Sfx::UiBack);
                 return Some(MenuChoice::Resume);
             }
             for (i, row) in rows.iter().enumerate() {
-                if !row.contains(tap) {
+                if !row.contains(click) {
                     continue;
                 }
                 self.focus = i;
                 let item = self.items[i];
                 if matches!(item, MenuItem::Music | MenuItem::Sound) {
                     let slider = slider_rect(*row, layout.s);
-                    let value = ((tap.x - slider.x) / slider.w).clamp(0.0, 1.0);
+                    let value = ((click.x - slider.x) / slider.w).clamp(0.0, 1.0);
                     let current = match item {
                         MenuItem::Music => ctx.settings.music_volume,
                         _ => ctx.settings.sfx_volume,
@@ -342,14 +342,14 @@ impl CodeDialog {
             ctx.audio.play(Sfx::UiBack);
             return true;
         }
-        let copy = input.confirmed() || input.taps().any(|t| button.contains(t));
+        let copy = input.confirmed() || input.clicks().any(|t| button.contains(t));
         if copy && !self.copied {
             crate::storage::progress::copy_to_clipboard(&self.code);
             self.copied = true;
             ctx.audio.play(Sfx::UiConfirm);
             return false;
         }
-        if copy || input.taps().any(|t| !card.contains(t)) {
+        if copy || input.clicks().any(|t| !card.contains(t)) {
             ctx.audio.play(Sfx::UiBack);
             return true;
         }

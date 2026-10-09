@@ -34,5 +34,5 @@ changing them:
 `SHOTS_DIR=/tmp/shots cargo test -r -p infestation screenshots -- --ignored --test-threads=1`
 renders scripted scenes (title, levels, effects frame by frame, the world map
 and a full title-to-map-to-level flow) to PNGs for visual review. `W`/`H` set
-the window size, `HINTS=touch|pad` the input prompts, and `ONLY=` a
+the window size, `HINTS=pad` controller prompts, and `ONLY=` a
 comma-separated list of shot name prefixes.

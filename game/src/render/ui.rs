@@ -66,13 +66,8 @@ impl ScreenLayout {
     }
 }
 
-/// The mouse position, if it's hovering (not on touch screens).
-pub(crate) fn hover_pos() -> Option<Vec2> {
-    (!quad_touch::is_touch_device()).then(|| Vec2::from(mouse_position()))
-}
-
 pub(crate) fn hovered(rect: Rect) -> bool {
-    hover_pos().is_some_and(|p| rect.contains(p))
+    rect.contains(Vec2::from(mouse_position()))
 }
 
 /// A dark floating panel.
@@ -234,7 +229,7 @@ impl Button<'_> {
         }
     }
 
-    /// Whether a tap at `pos` presses this button.
+    /// Whether a click at `pos` presses this button.
     pub(crate) fn hit(&self, pos: Vec2) -> bool {
         self.enabled && self.rect.contains(pos)
     }

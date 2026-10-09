@@ -31,7 +31,6 @@ impl LevelScene {
                 Some(Glyph::Pad(ty, PadButton::LeftShoulder)),
                 "again to restart",
             ),
-            InputHints::Touch => ("Tap Restart again to start over", None, ""),
         };
         let size = 19.0 * s;
         let gap = 8.0 * s;
@@ -351,11 +350,6 @@ fn action_glyphs(hints: InputHints) -> ActionGlyphs {
             restart: Some(Glyph::Key("R")),
             confirm: Some(Glyph::Key("Space")),
         },
-        InputHints::Touch => ActionGlyphs {
-            undo: None,
-            restart: None,
-            confirm: None,
-        },
         InputHints::Controller(ty) => ActionGlyphs {
             undo: Some(Glyph::Pad(ty, PadButton::West)),
             restart: Some(Glyph::Pad(ty, PadButton::LeftShoulder)),
@@ -373,7 +367,7 @@ fn control_rows(hints: InputHints, players: usize) -> Vec<ControlRow> {
     let two = players > 1;
     let mut rows = Vec::new();
     match hints {
-        InputHints::Keyboard | InputHints::Touch if !two => {
+        InputHints::Keyboard if !two => {
             rows.push(row(
                 SpriteId::IconPlay,
                 "Move",
@@ -405,7 +399,7 @@ fn control_rows(hints: InputHints, players: usize) -> Vec<ControlRow> {
                 Some(UiAction::Menu),
             ));
         }
-        InputHints::Keyboard | InputHints::Touch => {
+        InputHints::Keyboard => {
             rows.push(row(
                 SpriteId::IconPlayers,
                 "P1 move",
@@ -503,9 +497,6 @@ fn control_rows(hints: InputHints, players: usize) -> Vec<ControlRow> {
                 Some(UiAction::Menu),
             ));
         }
-    }
-    if hints != InputHints::Touch {
-        rows.push(row(SpriteId::IconDrag, "Plan a path", vec![], None));
     }
     rows
 }
@@ -954,7 +945,6 @@ fn draw_portrait_hud(sprites: &Sprites, scene: &LevelScene, ctx: &Ctx, layout: &
         draw_dialogue(sprites, scene, space, s, true);
     } else {
         let hint = match ctx.hints {
-            InputHints::Touch => "Swipe to move. Drag from your hero to plan a path.",
             InputHints::Keyboard => "Arrows or WASD to move. Space waits a turn.",
             InputHints::Controller(_) => "D-pad or stick to move.",
         };

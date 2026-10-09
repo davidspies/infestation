@@ -1,5 +1,5 @@
 [workspace]
-members = ["game", "quad-gamepad", "quad-touch", "scenario_tests"]
+members = ["game", "quad-gamepad", "scenario_tests"]
 exclude = ["vendor"]
 resolver = "2"
 

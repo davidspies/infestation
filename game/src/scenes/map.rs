@@ -10,7 +10,7 @@ use macroquad::rand::gen_range;
 
 use crate::atlas::SpriteId;
 use crate::audio::Sfx;
-use crate::input::{InputHints, MetaInput, PointerEvent, TouchGesture};
+use crate::input::{InputHints, MetaInput, PointerEvent};
 use crate::levels::Level;
 use crate::position::Position;
 use crate::progress::Progress;
@@ -31,7 +31,7 @@ use camera::Camera;
 /// Hero walking speed on the map, in cells per second.
 const WALK_SPEED: f32 = 9.0;
 /// How far (in nominal pixels) a press moves before it drags the view
-/// instead of clicking: enough for a finger's wobble.
+/// instead of clicking.
 const DRAG_THRESHOLD: f32 = 8.0;
 
 /// The map's cells: which are floor (and of what region), wall or empty.
@@ -261,9 +261,9 @@ impl MapScene {
             .map(|(i, _)| i)
     }
 
-    /// A click or tap: on the Play button or a node, which the hero walks
-    /// to (or enters, if it's the selected level). Returns whether to play.
-    fn tap(&mut self, ctx: &mut Ctx, layout: &ScreenLayout, pos: Vec2) -> bool {
+    /// A click on the Play button or a node, which the hero walks to (or
+    /// enters, if it's the selected level). Returns whether to play.
+    fn click(&mut self, ctx: &mut Ctx, layout: &ScreenLayout, pos: Vec2) -> bool {
         if self.play_button(ctx, layout).hit(pos) {
             return true;
         }
@@ -280,7 +280,7 @@ impl MapScene {
         false
     }
 
-    /// Clicks and taps, dragging the view, and zooming with the wheel.
+    /// Clicks, dragging the view, and zooming with the wheel.
     /// Returns whether to play.
     fn pointer(&mut self, ctx: &mut Ctx, input: &FrameInput, layout: &ScreenLayout) -> bool {
         let mut play = false;
@@ -304,8 +304,8 @@ impl MapScene {
                 }
                 PointerEvent::Up { .. } => {
                     let dragged = self.drag.take().is_some_and(|d| d.dragging);
-                    if !dragged && let Some(TouchGesture::Tap(pos)) = event.gesture() {
-                        play |= self.tap(ctx, layout, pos);
+                    if !dragged && let Some(pos) = event.click() {
+                        play |= self.click(ctx, layout, pos);
                     }
                 }
             }
@@ -524,7 +524,6 @@ impl MapScene {
         };
         let glyph = match ctx.hints {
             InputHints::Keyboard => Some(Glyph::Key("Enter")),
-            InputHints::Touch => None,
             InputHints::Controller(ty) => Some(Glyph::Pad(ty, PadButton::South)),
         };
         Button {

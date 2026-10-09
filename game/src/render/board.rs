@@ -15,8 +15,7 @@ use crate::position::{Position, PositionDelta};
 use crate::render::fx::{BoardSpace, Fx, cell_center};
 use crate::render::palette::{self, INK, Palette};
 use crate::render::shapes::{
-    circle, faded, polyline, rounded_rect_outline, soft_shadow, textured_rounded_rect,
-    vertical_gradient,
+    circle, faded, rounded_rect_outline, soft_shadow, textured_rounded_rect, vertical_gradient,
 };
 use crate::render::terrain::{self, Ground, TEXEL_CELL, Terrain, WALL_FRONT, cell_hash, darken};
 use crate::render::text;
@@ -75,15 +74,6 @@ impl BoardLayout {
             (self.width as f32 + FRAME_SIDE * 2.0) * c,
             (self.height as f32 + FRAME_TOP + FRAME_BOTTOM + SLAB_FRONT) * c,
         )
-    }
-
-    pub(crate) fn screen_to_cell(&self, p: Vec2) -> Option<Position> {
-        let rel = (p - self.space.origin) / self.space.cell;
-        let pos = Position {
-            x: rel.x.floor() as i32,
-            y: rel.y.floor() as i32,
-        };
-        pos.in_bounds((self.width, self.height)).then_some(pos)
     }
 }
 
@@ -185,8 +175,6 @@ pub(crate) struct BoardView<'a> {
     pub(crate) fx: &'a Fx,
     pub(crate) palette: &'a Palette,
     pub(crate) time: f32,
-    /// Paths players are following or being dragged out, per player.
-    pub(crate) paths: &'a [(Player, Vec<Position>)],
     /// Preregistered moves, drawn translucent at their destination.
     pub(crate) ghosts: &'a [(Position, Cell)],
 }
@@ -233,9 +221,6 @@ pub(crate) fn draw(sprites: &Sprites, layout: BoardLayout, view: &BoardView) {
     draw_floor_outlines(layout, grid);
     terrain::draw_outlines(&terrain, &cells);
     draw_objects(sprites, layout, grid);
-    for (player, path) in view.paths {
-        draw_path(layout.space, *player, path, view.time);
-    }
     draw_creatures(sprites, layout, grid, view);
     view.fx.draw_over(sprites, layout.space);
     view.fx.draw_wash(layout.slab_rect());
@@ -628,23 +613,6 @@ fn creature_sprite(cell: Cell, time: f32, phase: f32, moving: bool) -> SpriteId 
         Cell::CyborgRat(_) => SpriteId::CYBORG_FRAMES[frame],
         _ => unreachable!("not a creature: {cell:?}"),
     }
-}
-
-/// A dragged or followed path: footprint dots leading to a target ring.
-fn draw_path(space: BoardSpace, player: Player, path: &[Position], time: f32) {
-    let c = space.cell;
-    let color = player_color(player);
-    let points: Vec<Vec2> = path.iter().map(|&p| space.cell_center(p)).collect();
-    if points.len() < 2 {
-        return;
-    }
-    polyline(&points, c * 0.16, faded(INK, 0.55));
-    polyline(&points, c * 0.09, faded(color, 0.9));
-    let end = *points.last().unwrap();
-    let pulse = (time * 5.0).sin() * 0.03;
-    circle(end, c * (0.2 + pulse), INK);
-    circle(end, c * (0.15 + pulse), color);
-    circle(end, c * 0.07, WHITE);
 }
 
 /// Unit vector of a direction, in cells.

@@ -25,7 +25,9 @@ impl Gamepad {
 
 const REPEAT_DELAY: f32 = 0.2;
 const STICK_THRESHOLD: f32 = 0.5;
-const SWIPE_THRESHOLD: f32 = 30.0;
+/// How far the mouse may move between press and release for it to still
+/// count as a click.
+const CLICK_SLOP: f32 = 30.0;
 
 /// Number of input sources: [0]=arrows, [1]=WASD, [2]=gamepad0, [3]=gamepad1.
 const NUM_SOURCES: usize = 4;
@@ -65,7 +67,6 @@ fn dpad_button(dir: Dir4) -> GamepadButton {
 pub(crate) enum InputHints {
     #[default]
     Keyboard,
-    Touch,
     Controller(ControllerType),
 }
 
@@ -88,14 +89,7 @@ pub(crate) enum MetaInput {
     Confirm(Player),
 }
 
-/// A touch gesture result.
-#[derive(Debug, Clone, Copy)]
-pub(crate) enum TouchGesture {
-    Swipe(Dir4),
-    Tap(Vec2),
-}
-
-/// A pointer (touch or mouse-drag) event.
+/// The left mouse button pressed, dragged or released.
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum PointerEvent {
     Down(Vec2),
@@ -104,51 +98,27 @@ pub(crate) enum PointerEvent {
 }
 
 impl PointerEvent {
-    /// Classify a completed pointer stroke as a tap or a swipe.
-    pub(crate) fn gesture(self) -> Option<TouchGesture> {
+    /// Where a click landed: a release near where the press began.
+    pub(crate) fn click(self) -> Option<Vec2> {
         let PointerEvent::Up { start, end } = self else {
             return None;
         };
-        let delta = end - start;
-        Some(if delta.length() >= SWIPE_THRESHOLD {
-            TouchGesture::Swipe(swipe_to_direction(delta))
-        } else {
-            TouchGesture::Tap(start)
-        })
+        (start.distance(end) < CLICK_SLOP).then_some(start)
     }
 }
 
-/// A raw touch event replayed from miniquad.
-struct RawTouch {
-    id: u64,
-    phase: miniquad::TouchPhase,
-    position: Vec2,
-}
-
-/// Collects raw touch and wheel events via miniquad's input subscriber.
-/// Unlike `macroquad::input::touches()`, which coalesces events per finger
-/// per frame (losing the Started phase when a fast swipe's start and
-/// move/end land in the same frame), and `mouse_wheel()`, which keeps only a
-/// frame's last wheel event, this sees every event.
+/// Sums a frame's mouse wheel events, replayed from miniquad's input
+/// subscriber (`mouse_wheel()` keeps only the last).
 #[derive(Default)]
-struct RawEventCollector {
-    touches: Vec<RawTouch>,
+struct WheelCollector {
     /// Vertical wheel movement, in the platform's units.
     wheel: f32,
 }
 
-impl miniquad::EventHandler for RawEventCollector {
+impl miniquad::EventHandler for WheelCollector {
     fn update(&mut self) {}
 
     fn draw(&mut self) {}
-
-    fn touch_event(&mut self, phase: miniquad::TouchPhase, id: u64, x: f32, y: f32) {
-        self.touches.push(RawTouch {
-            id,
-            phase,
-            position: Vec2::new(x, y),
-        });
-    }
 
     fn mouse_wheel_event(&mut self, _x: f32, y: f32) {
         self.wheel += y;
@@ -169,7 +139,7 @@ pub(crate) struct PointerInput {
     pub(crate) wheel: f32,
 }
 
-/// Tracks held state for input repeat and touch gesture detection.
+/// Tracks held state for input repeat, and mouse presses.
 pub(crate) struct InputState {
     /// Per-source directional held timers: [arrows, WASD, gamepad0, gamepad1][dir].
     held_move: [EnumMap<Dir4, f32>; NUM_SOURCES],
@@ -184,9 +154,9 @@ pub(crate) struct InputState {
     stick_active: EnumMap<Gamepad, EnumMap<Dir4, bool>>,
     /// Directional held timers for menu/map navigation, from any source.
     held_nav: EnumMap<Dir4, f32>,
-    touch_start: Option<(u64, Vec2)>,
+    /// Where the left mouse button went down, while it's held.
     mouse_start: Option<Vec2>,
-    raw_subscriber: usize,
+    wheel_subscriber: usize,
     /// The device most recently used.
     hints: InputHints,
     /// Whether any input has been seen yet (before that, hints are guessed).
@@ -203,22 +173,19 @@ impl InputState {
             held_confirm: EnumMap::default(),
             stick_active: EnumMap::default(),
             held_nav: EnumMap::default(),
-            touch_start: None,
             mouse_start: None,
-            raw_subscriber: register_input_subscriber(),
+            wheel_subscriber: register_input_subscriber(),
             hints: InputHints::Keyboard,
             used_any: false,
         }
     }
 
-    /// The device the player last used. Before any input, prefers touch on
-    /// touch devices, then a connected controller.
+    /// The device the player last used. Before any input, a connected
+    /// controller if there is one.
     pub(crate) fn hints(&self, gamepad: &GamepadContext) -> InputHints {
         match self.hints {
             InputHints::Keyboard if !self.used_any => {
-                if quad_touch::is_touch_device() {
-                    InputHints::Touch
-                } else if let Some(gp) = gamepad.gamepad(0)
+                if let Some(gp) = gamepad.gamepad(0)
                     && gp.is_connected()
                 {
                     InputHints::Controller(gp.controller_type())
@@ -232,9 +199,7 @@ impl InputState {
 
     /// Note which device was used this frame.
     pub(crate) fn track_device(&mut self, gamepad: &GamepadContext) {
-        if get_last_key_pressed().is_some()
-            || (self.touch_start.is_none() && is_mouse_button_pressed(MouseButton::Left))
-        {
+        if get_last_key_pressed().is_some() || is_mouse_button_pressed(MouseButton::Left) {
             self.hints = InputHints::Keyboard;
             self.used_any = true;
         }
@@ -479,59 +444,22 @@ impl InputState {
         result
     }
 
-    /// Poll touch and mouse input into a unified pointer event stream,
-    /// in frame order. Tracks the first finger only; the mouse acts as a
-    /// pointer only when no touch is involved (touch devices synthesize
-    /// mouse events from touches).
+    /// Poll the left mouse button and the wheel.
     pub(crate) fn poll_pointer(&mut self) -> PointerInput {
-        let mut collector = RawEventCollector::default();
-        repeat_all_miniquad_input(&mut collector, self.raw_subscriber);
+        let mut collector = WheelCollector::default();
+        repeat_all_miniquad_input(&mut collector, self.wheel_subscriber);
 
-        let touch_seen = !collector.touches.is_empty();
+        let pos = Vec2::from(mouse_position());
         let mut events = Vec::new();
-        for touch in collector.touches {
-            match touch.phase {
-                miniquad::TouchPhase::Started => {
-                    if self.touch_start.is_none() {
-                        self.touch_start = Some((touch.id, touch.position));
-                        events.push(PointerEvent::Down(touch.position));
-                    }
-                }
-                miniquad::TouchPhase::Moved => {
-                    if let Some((start_id, _)) = self.touch_start
-                        && start_id == touch.id
-                    {
-                        events.push(PointerEvent::Moved(touch.position));
-                    }
-                }
-                miniquad::TouchPhase::Ended | miniquad::TouchPhase::Cancelled => {
-                    let Some((start_id, start_pos)) = self.touch_start else {
-                        continue;
-                    };
-                    if start_id != touch.id {
-                        continue;
-                    }
-                    self.touch_start = None;
-                    events.push(PointerEvent::Up {
-                        start: start_pos,
-                        end: touch.position,
-                    });
-                }
-            }
-        }
-
-        if !touch_seen && self.touch_start.is_none() {
-            let pos = Vec2::from(mouse_position());
-            if is_mouse_button_pressed(MouseButton::Left) {
-                self.mouse_start = Some(pos);
-                events.push(PointerEvent::Down(pos));
-            } else if let Some(start) = self.mouse_start {
-                if is_mouse_button_down(MouseButton::Left) {
-                    events.push(PointerEvent::Moved(pos));
-                } else {
-                    self.mouse_start = None;
-                    events.push(PointerEvent::Up { start, end: pos });
-                }
+        if is_mouse_button_pressed(MouseButton::Left) {
+            self.mouse_start = Some(pos);
+            events.push(PointerEvent::Down(pos));
+        } else if let Some(start) = self.mouse_start {
+            if is_mouse_button_down(MouseButton::Left) {
+                events.push(PointerEvent::Moved(pos));
+            } else {
+                self.mouse_start = None;
+                events.push(PointerEvent::Up { start, end: pos });
             }
         }
 
@@ -717,20 +645,6 @@ fn input_repeat(down: bool, pressed: bool, held: &mut f32, dt: f32) -> bool {
     } else {
         *held = 0.0;
         false
-    }
-}
-
-fn swipe_to_direction(delta: Vec2) -> Dir4 {
-    if delta.x.abs() > delta.y.abs() {
-        if delta.x > 0.0 {
-            Dir4::East
-        } else {
-            Dir4::West
-        }
-    } else if delta.y > 0.0 {
-        Dir4::South
-    } else {
-        Dir4::North
     }
 }
 

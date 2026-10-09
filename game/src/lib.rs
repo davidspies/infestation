@@ -5,7 +5,6 @@ pub(crate) mod game;
 pub(crate) mod grid;
 pub(crate) mod input;
 pub(crate) mod levels;
-pub(crate) mod path;
 pub(crate) mod position;
 pub(crate) mod progress;
 pub(crate) mod render;

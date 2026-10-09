@@ -894,7 +894,6 @@ dependencies = [
  "macroquad",
  "quad-gamepad",
  "quad-storage",
- "quad-touch",
  "quad-url",
  "serde",
  "serde_json",
@@ -1473,10 +1472,6 @@ checksum = "1187c77ced2cc6ae79bd6e35cc09e22159164a05c4d867e299bfbf1f801e9157"
 dependencies = [
  "sapp-jsutils",
 ]
-
-[[package]]
-name = "quad-touch"
-version = "0.1.0"
 
 [[package]]
 name = "quad-url"

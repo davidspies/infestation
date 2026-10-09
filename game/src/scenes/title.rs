@@ -157,7 +157,6 @@ impl TitleScene {
         let prompt_y = h * 0.86;
         let prompt_size = 26.0 * s;
         let (label, glyph) = match ctx.hints {
-            InputHints::Touch => ("Tap to begin", None),
             InputHints::Keyboard => ("Press any key", None),
             InputHints::Controller(ty) => ("to begin", Some(Glyph::Pad(ty, PadButton::South))),
         };
