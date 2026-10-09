@@ -3,7 +3,8 @@ members = ["game", "quad-gamepad", "scenario_tests"]
 exclude = ["vendor"]
 resolver = "2"
 
-# quad-snd with a smaller ALSA buffer, so sounds start ~25 ms after they're
-# played instead of ~140 ms (Linux only). See vendor/quad-snd/src/alsa_snd.rs.
+# quad-snd, patched: a smaller ALSA buffer, so sounds start ~25 ms after
+# they're played instead of ~140 ms (Linux only; src/alsa_snd.rs), and music
+# that loops without a garbled hiccup at the loop point (src/mixer.rs).
 [patch.crates-io]
 quad-snd = { path = "vendor/quad-snd" }

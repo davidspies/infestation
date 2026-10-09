@@ -218,7 +218,11 @@ impl Mixer {
             loop {
                 let samples = sound.get_samples(remainder);
 
-                for (b, s) in buffer.iter_mut().zip(samples) {
+                // Infestation patch: after a looping sound wraps, mix its
+                // start after what's already filled, not over the
+                // beginning of the buffer (which garbled every loop point).
+                let filled = buffer.len() - remainder;
+                for (b, s) in buffer[filled..].iter_mut().zip(samples) {
                     *b += s * volume;
                 }
 
