@@ -297,9 +297,9 @@ impl LevelScene {
         scorch.color = (Color::new(1.0, 1.0, 1.0, 0.75), faded(WHITE, 0.0));
         scorch.under = true;
         self.fx.spawn(scorch);
-        self.fx.shake(0.55);
+        self.fx.shake(0.4);
         self.fx.hitstop(0.05);
-        ctx.audio.play(Sfx::Explosion);
+        ctx.audio.play_at(Sfx::Explosion, 0.7);
         if center != Cell::Explosive {
             self.on_destroyed(ctx, pos, center, None);
         }
