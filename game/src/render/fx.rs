@@ -307,7 +307,13 @@ impl Fx {
     }
 
     pub(crate) fn shake(&mut self, amount: f32) {
-        self.trauma = (self.trauma + amount).min(1.0);
+        self.shake_up_to(amount, 1.0);
+    }
+
+    /// Shake, but not past `limit` (nor lessening a bigger shake already
+    /// under way).
+    pub(crate) fn shake_up_to(&mut self, amount: f32, limit: f32) {
+        self.trauma = (self.trauma + amount).min(limit.max(self.trauma));
     }
 
     pub(crate) fn hitstop(&mut self, duration: f32) {

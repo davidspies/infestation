@@ -75,6 +75,8 @@ pub(crate) struct LevelScene {
     ended: Option<f32>,
     /// What killed a hero, once one has died.
     death: Option<Death>,
+    /// Explosions so far this turn, so a long chain's bangs get quieter.
+    blasts: u32,
     dialogue: Dialogue,
     /// When restart was first pressed, awaiting a second press.
     restart_armed: Option<f32>,
@@ -106,6 +108,7 @@ impl LevelScene {
             time: 0.0,
             ended: None,
             death: None,
+            blasts: 0,
             dialogue: Dialogue::default(),
             restart_armed: None,
             progress_before: None,
@@ -179,6 +182,7 @@ impl LevelScene {
         self.facings.snap(&self.game.state.grid);
         self.ended = None;
         self.death = None;
+        self.blasts = 0;
         self.restart_armed = None;
     }
 

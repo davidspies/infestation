@@ -73,6 +73,7 @@ impl LevelScene {
                 GameEvent::Turn => {
                     self.facings.begin_moves(&moves);
                     moves.clear();
+                    self.blasts = 0;
                 }
                 GameEvent::Moved { entity, from, to } => {
                     moves.push((entity, from, to));
@@ -297,9 +298,14 @@ impl LevelScene {
         scorch.color = (Color::new(1.0, 1.0, 1.0, 0.75), faded(WHITE, 0.0));
         scorch.under = true;
         self.fx.spawn(scorch);
-        self.fx.shake(0.4);
+        // Every blast kicks, but a chain reaction's shake tops out below
+        // full; and after the first couple, the bangs get quieter, so a long
+        // chain stays chaotic without pummelling.
+        self.fx.shake_up_to(0.55, 0.85);
         self.fx.hitstop(0.05);
-        ctx.audio.play_at(Sfx::Explosion, 0.7);
+        self.blasts += 1;
+        let loudness = (2.0 / self.blasts as f32).min(1.0);
+        ctx.audio.play_at(Sfx::Explosion, loudness.max(0.35));
         if center != Cell::Explosive {
             self.on_destroyed(ctx, pos, center, None);
         }
