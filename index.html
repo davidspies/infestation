@@ -94,6 +94,7 @@
     <script src="js/quad-touch.js"></script>
     <script src="js/screen-wake.js"></script>
     <script src="js/progress.js"></script>
-    <script>load("target/wasm32-unknown-unknown/release/infestation.wasm");</script>
+    <script src="js/desktop-only.js"></script>
+    <script>loadIfSupported("target/wasm32-unknown-unknown/release/infestation.wasm");</script>
 </body>
 </html>

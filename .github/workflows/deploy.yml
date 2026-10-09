@@ -65,6 +65,12 @@ jobs:
           }
           package . dist
           package after dist/after
+          # Phones and tablets get a notice instead of the game, on /after/
+          # too: its page (not its game) gains the check.
+          cp js/desktop-only.js dist/after/js/
+          sed -i 's|<script>load(|<script src="js/desktop-only.js"></script><script>loadIfSupported(|' \
+            dist/after/index.html
+          grep -q 'loadIfSupported(' dist/after/index.html
           # The original loads its assets at runtime.
           mkdir -p dist/before
           cp -r before/index.html before/js before/assets dist/before/
