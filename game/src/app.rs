@@ -5,7 +5,7 @@ use macroquad::prelude::*;
 use quad_gamepad::GamepadContext;
 
 use crate::audio::{Audio, AudioLoader, Sfx, Track};
-use crate::input::{InputHints, InputState, PointerEvent};
+use crate::input::{InputHints, InputState, PointerEvent, PointerInput};
 use crate::levels::{self, Level};
 use crate::progress::Progress;
 use crate::render::palette::{GOLD, INK, TEXT_DIM, rgb};
@@ -184,7 +184,10 @@ impl App {
         let meta = self.input.poll_meta_inputs(&self.gamepad, dt);
         let player_actions = self.input.poll_player_actions(&self.gamepad, dt, players);
         let nav = self.input.poll_nav(&self.gamepad, dt);
-        let pointer = self.input.poll_pointer();
+        let PointerInput {
+            events: pointer,
+            wheel,
+        } = self.input.poll_pointer();
         let any = !meta.is_empty()
             || player_actions.values().any(Option::is_some)
             || nav.is_some()
@@ -196,6 +199,7 @@ impl App {
             players: player_actions,
             nav,
             pointer,
+            wheel,
             any,
         }
     }

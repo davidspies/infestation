@@ -28,6 +28,7 @@ fn idle(dt: f32) -> FrameInput {
         players: EnumMap::default(),
         nav: None,
         pointer: Vec::new(),
+        wheel: 0.0,
         any: false,
     }
 }
@@ -562,6 +563,28 @@ fn screenshots() {
             }
             scene.draw(&ctx, &layout);
             save(&sprites, &dir, shot);
+            next_frame().await;
+        }
+
+        // Scrolled all the way out, with most of the keep explored. (The
+        // wheel zooms toward the mouse, but fully out the map is centered.)
+        if want("map_zoomed_out") {
+            let mut progress = Progress::with_completed(
+                all_cleared_at("chase")
+                    .into_iter()
+                    .filter(|l| !l.starts_with("old_levels/")),
+            );
+            let mut scene = MapScene::new(&progress, None, levels::get_level("chase"), None);
+            let mut ctx = ctx!(&mut progress);
+            let layout = ScreenLayout::current();
+            let mut scroll = idle(1.0 / 60.0);
+            scroll.wheel = -30.0;
+            scene.update(&mut ctx, &scroll, &layout);
+            for _ in 0..200 {
+                scene.update(&mut ctx, &idle(1.0 / 60.0), &layout);
+            }
+            scene.draw(&ctx, &layout);
+            save(&sprites, &dir, "map_zoomed_out");
             next_frame().await;
         }
         miniquad::window::order_quit();

@@ -240,11 +240,9 @@ impl MapScene {
     /// Name tags for the selected level and the one under the pointer.
     fn labels(&self, sprites: &Sprites, space: BoardSpace, s: f32) -> Vec<Label> {
         let map = &*WORLD_MAP;
-        let hovered = ui::hover_pos().and_then(|p| {
-            map.nodes.iter().position(|n| {
-                n.level().is_some() && space.to_screen(n.pos).distance(p) < space.cell * 0.8
-            })
-        });
+        let hovered = ui::hover_pos()
+            .and_then(|p| self.node_at(space, p))
+            .filter(|&n| map.nodes[n].level().is_some());
         let mut labels = Vec::new();
         for node in [Some(self.selected), hovered].into_iter().flatten() {
             let Some(level) = map.nodes[node].level() else {

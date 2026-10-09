@@ -37,6 +37,8 @@ pub(crate) struct FrameInput {
     /// Menu/map navigation.
     pub(crate) nav: Option<Dir4>,
     pub(crate) pointer: Vec<PointerEvent>,
+    /// Mouse wheel (or trackpad) scrolling, in notches; positive scrolls up.
+    pub(crate) wheel: f32,
     /// Any key, button, click or tap (for "press any key").
     pub(crate) any: bool,
 }

@@ -125,27 +125,48 @@ struct RawTouch {
     position: Vec2,
 }
 
-/// Collects raw touch events via miniquad's input subscriber. Unlike
-/// `macroquad::input::touches()`, which coalesces events per finger per frame
-/// (losing the Started phase when a fast swipe's start and move/end land in
-/// the same frame), this sees every event.
+/// Collects raw touch and wheel events via miniquad's input subscriber.
+/// Unlike `macroquad::input::touches()`, which coalesces events per finger
+/// per frame (losing the Started phase when a fast swipe's start and
+/// move/end land in the same frame), and `mouse_wheel()`, which keeps only a
+/// frame's last wheel event, this sees every event.
 #[derive(Default)]
-struct TouchEventCollector {
-    events: Vec<RawTouch>,
+struct RawEventCollector {
+    touches: Vec<RawTouch>,
+    /// Vertical wheel movement, in the platform's units.
+    wheel: f32,
 }
 
-impl miniquad::EventHandler for TouchEventCollector {
+impl miniquad::EventHandler for RawEventCollector {
     fn update(&mut self) {}
 
     fn draw(&mut self) {}
 
     fn touch_event(&mut self, phase: miniquad::TouchPhase, id: u64, x: f32, y: f32) {
-        self.events.push(RawTouch {
+        self.touches.push(RawTouch {
             id,
             phase,
             position: Vec2::new(x, y),
         });
     }
+
+    fn mouse_wheel_event(&mut self, _x: f32, y: f32) {
+        self.wheel += y;
+    }
+}
+
+/// Wheel units per notch: browsers report pixels, desktops whole notches.
+const WHEEL_UNITS_PER_NOTCH: f32 = if cfg!(target_arch = "wasm32") {
+    100.0
+} else {
+    1.0
+};
+
+/// Pointer input for one frame.
+pub(crate) struct PointerInput {
+    pub(crate) events: Vec<PointerEvent>,
+    /// Mouse wheel (or trackpad) scrolling, in notches; positive scrolls up.
+    pub(crate) wheel: f32,
 }
 
 /// Tracks held state for input repeat and touch gesture detection.
@@ -165,7 +186,7 @@ pub(crate) struct InputState {
     held_nav: EnumMap<Dir4, f32>,
     touch_start: Option<(u64, Vec2)>,
     mouse_start: Option<Vec2>,
-    touch_subscriber: usize,
+    raw_subscriber: usize,
     /// The device most recently used.
     hints: InputHints,
     /// Whether any input has been seen yet (before that, hints are guessed).
@@ -184,7 +205,7 @@ impl InputState {
             held_nav: EnumMap::default(),
             touch_start: None,
             mouse_start: None,
-            touch_subscriber: register_input_subscriber(),
+            raw_subscriber: register_input_subscriber(),
             hints: InputHints::Keyboard,
             used_any: false,
         }
@@ -462,13 +483,13 @@ impl InputState {
     /// in frame order. Tracks the first finger only; the mouse acts as a
     /// pointer only when no touch is involved (touch devices synthesize
     /// mouse events from touches).
-    pub(crate) fn poll_pointer(&mut self) -> Vec<PointerEvent> {
-        let mut collector = TouchEventCollector::default();
-        repeat_all_miniquad_input(&mut collector, self.touch_subscriber);
+    pub(crate) fn poll_pointer(&mut self) -> PointerInput {
+        let mut collector = RawEventCollector::default();
+        repeat_all_miniquad_input(&mut collector, self.raw_subscriber);
 
-        let touch_seen = !collector.events.is_empty();
+        let touch_seen = !collector.touches.is_empty();
         let mut events = Vec::new();
-        for touch in collector.events {
+        for touch in collector.touches {
             match touch.phase {
                 miniquad::TouchPhase::Started => {
                     if self.touch_start.is_none() {
@@ -514,7 +535,10 @@ impl InputState {
             }
         }
 
-        events
+        PointerInput {
+            events,
+            wheel: collector.wheel / WHEEL_UNITS_PER_NOTCH,
+        }
     }
 }
 

@@ -10,7 +10,7 @@ use macroquad::rand::gen_range;
 
 use crate::atlas::SpriteId;
 use crate::audio::Sfx;
-use crate::input::{InputHints, MetaInput};
+use crate::input::{InputHints, MetaInput, PointerEvent, TouchGesture};
 use crate::levels::Level;
 use crate::position::Position;
 use crate::progress::Progress;
@@ -21,12 +21,18 @@ use crate::render::shapes::faded;
 use crate::render::terrain::Ground;
 use crate::render::ui::{Button, ButtonKind, ScreenLayout};
 use crate::scenes::{Ctx, FrameInput, Request};
-use crate::world_map::{Theme, WORLD_MAP, WorldMap};
+use crate::world_map::{NodeKind, Theme, WORLD_MAP, WorldMap};
 
+mod camera;
 mod draw;
+
+use camera::Camera;
 
 /// Hero walking speed on the map, in cells per second.
 const WALK_SPEED: f32 = 9.0;
+/// How far (in nominal pixels) a press moves before it drags the view
+/// instead of clicking: enough for a finger's wobble.
+const DRAG_THRESHOLD: f32 = 8.0;
 
 /// The map's cells: which are floor (and of what region), wall or empty.
 struct MapCells {
@@ -90,6 +96,13 @@ impl MapCells {
     }
 }
 
+/// A press on the map, which drags the view once it moves far enough.
+struct Drag {
+    start: Vec2,
+    last: Vec2,
+    dragging: bool,
+}
+
 /// The edge the hero is walking along.
 struct Walk {
     points: Vec<Vec2>,
@@ -129,7 +142,9 @@ pub(crate) struct MapScene {
     route: VecDeque<usize>,
     hero: Vec2,
     hero_angle: f32,
-    camera: Vec2,
+    camera: Camera,
+    /// A press on the map in progress.
+    drag: Option<Drag>,
     time: f32,
     reached: Vec<bool>,
     /// When newly opened nodes pop in (scene time), and whether we've
@@ -206,7 +221,8 @@ impl MapScene {
             route: VecDeque::new(),
             hero,
             hero_angle: std::f32::consts::PI,
-            camera: hero,
+            camera: Camera::new(hero, map.size.as_vec2()),
+            drag: None,
             time: 0.0,
             reached,
             appear,
@@ -225,15 +241,86 @@ impl MapScene {
     }
 
     fn space(&self, layout: &ScreenLayout) -> BoardSpace {
-        let cell = if layout.portrait() {
-            (layout.main.w / 15.0).clamp(22.0, 52.0)
-        } else {
-            (layout.main.h / 23.0).clamp(24.0, 60.0)
-        };
-        BoardSpace {
-            origin: layout.main.center() - self.camera * cell,
-            cell,
+        self.camera.space(layout)
+    }
+
+    /// The node drawn under the screen point `pos`, if any: a level in an
+    /// explored region, or a junction the hero can reach.
+    fn node_at(&self, space: BoardSpace, pos: Vec2) -> Option<usize> {
+        let map = &*WORLD_MAP;
+        map.nodes
+            .iter()
+            .enumerate()
+            .filter(|&(i, n)| match n.kind {
+                NodeKind::Level(_) => map.region_revealed(n.region, &self.reached),
+                NodeKind::Junction => self.reached[i],
+            })
+            .map(|(i, n)| (i, space.to_screen(n.pos).distance(pos)))
+            .filter(|&(_, d)| d < space.cell * 0.8)
+            .min_by(|a, b| a.1.total_cmp(&b.1))
+            .map(|(i, _)| i)
+    }
+
+    /// A click or tap: on the Play button or a node, which the hero walks
+    /// to (or enters, if it's the selected level). Returns whether to play.
+    fn tap(&mut self, ctx: &mut Ctx, layout: &ScreenLayout, pos: Vec2) -> bool {
+        if self.play_button(ctx, layout).hit(pos) {
+            return true;
         }
+        let Some(node) = self.node_at(self.space(layout), pos) else {
+            return false;
+        };
+        if !self.reached[node] {
+            ctx.audio.play(Sfx::UiLocked);
+        } else if node == self.selected {
+            return true;
+        } else {
+            self.go_to(node, ctx);
+        }
+        false
+    }
+
+    /// Clicks and taps, dragging the view, and zooming with the wheel.
+    /// Returns whether to play.
+    fn pointer(&mut self, ctx: &mut Ctx, input: &FrameInput, layout: &ScreenLayout) -> bool {
+        let mut play = false;
+        for &event in &input.pointer {
+            match event {
+                PointerEvent::Down(pos) => {
+                    self.drag = layout.main.contains(pos).then_some(Drag {
+                        start: pos,
+                        last: pos,
+                        dragging: false,
+                    });
+                }
+                PointerEvent::Moved(pos) => {
+                    if let Some(drag) = &mut self.drag {
+                        drag.dragging |= pos.distance(drag.start) > DRAG_THRESHOLD * layout.s;
+                        if drag.dragging {
+                            self.camera.pan(pos - drag.last, layout);
+                        }
+                        drag.last = pos;
+                    }
+                }
+                PointerEvent::Up { .. } => {
+                    let dragged = self.drag.take().is_some_and(|d| d.dragging);
+                    if !dragged && let Some(TouchGesture::Tap(pos)) = event.gesture() {
+                        play |= self.tap(ctx, layout, pos);
+                    }
+                }
+            }
+        }
+        if input.wheel != 0.0 {
+            // Toward the mouse, if it's over the map.
+            let mouse = Vec2::from(mouse_position());
+            let at = if layout.main.contains(mouse) {
+                mouse
+            } else {
+                layout.main.center()
+            };
+            self.camera.zoom_at(input.wheel, at, layout);
+        }
+        play
     }
 
     /// Where the hero is on screen, for centering transitions.
@@ -281,6 +368,9 @@ impl MapScene {
         self.announce(ctx);
 
         let mut play = false;
+        if input.nav.is_some() {
+            self.camera.follow();
+        }
         if let Some(dir) = input.nav
             && self.walk.is_none()
         {
@@ -300,30 +390,7 @@ impl MapScene {
         if input.has(MetaInput::Exit) {
             return Some(Request::Pause);
         }
-        let space = self.space(layout);
-        for tap in input.taps() {
-            if self.play_button(ctx, layout).hit(tap) {
-                play = true;
-                continue;
-            }
-            let near = map
-                .nodes
-                .iter()
-                .enumerate()
-                .filter(|(_, n)| n.level().is_some())
-                .map(|(i, n)| (i, space.to_screen(n.pos).distance(tap)))
-                .filter(|&(_, d)| d < space.cell * 0.8)
-                .min_by(|a, b| a.1.total_cmp(&b.1));
-            if let Some((node, _)) = near {
-                if !self.reached[node] {
-                    ctx.audio.play(Sfx::UiLocked);
-                } else if node == self.selected {
-                    play = true;
-                } else {
-                    self.go_to(node, ctx);
-                }
-            }
-        }
+        play |= self.pointer(ctx, input, layout);
         if play && self.selected_level().is_some() {
             if self.walk.is_none() {
                 return self.enter(ctx);
@@ -355,8 +422,7 @@ impl MapScene {
             return self.enter(ctx);
         }
 
-        let k = 1.0 - (-dt * 4.0).exp();
-        self.camera += (self.hero - self.camera) * k;
+        self.camera.update(dt, self.hero, layout);
         self.sparkle();
         None
     }
