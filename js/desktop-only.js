@@ -1,6 +1,7 @@
-// The game needs a keyboard, mouse or controller. On touchscreens without
-// a mouse or trackpad (phones and most tablets) it isn't playable yet, so
-// show a notice there instead of loading it.
+// The game is played with a keyboard or controller. Browsers can't tell
+// whether there's a keyboard, but anything with a mouse or trackpad (a
+// computer, a tablet with a keyboard cover) almost always has one. Elsewhere
+// (phones and most tablets) show a notice instead of loading the game.
 function loadIfSupported(wasm_path) {
     if (window.matchMedia("(any-pointer: fine)").matches) {
         load(wasm_path);
@@ -41,7 +42,7 @@ function loadIfSupported(wasm_path) {
     notice.className = "unsupported";
     notice.innerHTML = `
         <h1>Infestation</h1>
-        <p>This game needs a keyboard, mouse or controller, so it doesn't work on phones or tablets yet.</p>
+        <p>This game needs a keyboard or controller, so it doesn't work on phones or tablets yet.</p>
         <p>Open this page on a computer to play.</p>
     `;
     document.body.replaceChildren(notice);
