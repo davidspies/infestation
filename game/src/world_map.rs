@@ -8,7 +8,9 @@
 use std::collections::VecDeque;
 use std::sync::LazyLock;
 
-use enum_map::Enum;
+use enum_map::{Enum, EnumMap};
+
+use crate::direction::Dir4;
 use macroquad::math::{IVec2, Rect, Vec2, ivec2, vec2};
 use serde::Deserialize;
 
@@ -207,6 +209,31 @@ fn cell_center([x, y]: [f32; 2]) -> Vec2 {
     vec2(x + 0.5, y + 0.5)
 }
 
+/// Try every way of giving the paths distinct directions, keeping the one
+/// whose directions best match where the paths head.
+fn assign_directions(
+    paths: &[(usize, Vec2)],
+    chosen: EnumMap<Dir4, Option<usize>>,
+    score: f32,
+    best: &mut (f32, EnumMap<Dir4, Option<usize>>),
+) {
+    let Some((&(next, heading), rest)) = paths.split_first() else {
+        if score > best.0 {
+            *best = (score, chosen);
+        }
+        return;
+    };
+    for dir in Dir4::all() {
+        if chosen[dir].is_none() {
+            let d = dir.delta();
+            let mut with = chosen;
+            with[dir] = Some(next);
+            let fit = heading.dot(vec2(d.dx as f32, d.dy as f32));
+            assign_directions(rest, with, score + fit, best);
+        }
+    }
+}
+
 impl WorldMap {
     fn parse(json: &str) -> Self {
         let file: MapFile = serde_json::from_str(json).expect("invalid world map JSON");
@@ -262,7 +289,7 @@ impl WorldMap {
                 Edge { ends, points }
             })
             .collect();
-        Self {
+        let map = Self {
             size: IVec2::from(file.size),
             regions,
             corridors: file
@@ -277,7 +304,11 @@ impl WorldMap {
             nodes,
             edges,
             props: file.props,
+        };
+        for node in 0..map.nodes.len() {
+            map.exits(node);
         }
+        map
     }
 
     fn edges_at(&self, node: usize) -> impl Iterator<Item = &Edge> {
@@ -344,25 +375,43 @@ impl WorldMap {
         route
     }
 
-    /// The reachable level nearest to `from` in the given direction, for
-    /// moving the selection with arrow keys regardless of how paths wind.
-    pub(crate) fn level_toward(&self, from: usize, dir: Vec2, reached: &[bool]) -> Option<usize> {
-        let origin = self.nodes[from].pos;
-        let dir = dir.normalize();
-        self.nodes
-            .iter()
-            .enumerate()
-            .filter(|&(i, node)| i != from && reached[i] && node.level().is_some())
-            .filter_map(|(i, node)| {
-                let offset = node.pos - origin;
-                let along = offset.dot(dir);
-                let across = offset.perp_dot(dir).abs();
-                // Within a cone of about 70° either side of the direction,
-                // preferring nodes close to its axis.
-                (along > 0.0 && across <= along * 3.0).then_some((i, along + across * 2.0))
+    /// Which way each path out of `node` goes: the assignment of
+    /// directions to paths that best matches where they head.
+    pub(crate) fn exits(&self, node: usize) -> EnumMap<Dir4, Option<usize>> {
+        let paths: Vec<(usize, Vec2)> = self
+            .edges_at(node)
+            .map(|e| {
+                let points = e.points_from(node);
+                (e.other(node), (points[1] - points[0]).normalize())
             })
-            .min_by(|a, b| a.1.total_cmp(&b.1))
-            .map(|(i, _)| i)
+            .collect();
+        assert!(paths.len() <= 4, "map node {node} has more than four paths");
+        let mut best = (f32::NEG_INFINITY, EnumMap::default());
+        assign_directions(&paths, EnumMap::default(), 0.0, &mut best);
+        best.1
+    }
+
+    /// The nodes walked through by stepping from `node` in `dir`: to the
+    /// next stop along that path, passing straight through junctions that
+    /// lead only onward. None if there's no path that way or it's locked.
+    pub(crate) fn step(&self, node: usize, dir: Dir4, reached: &[bool]) -> Option<Vec<usize>> {
+        let mut route = vec![self.exits(node)[dir]?];
+        loop {
+            let at = *route.last().expect("route has a first step");
+            if !reached[at] {
+                return None;
+            }
+            let previous = route.len().checked_sub(2).map_or(node, |i| route[i]);
+            let onward: Vec<usize> = self
+                .edges_at(at)
+                .map(|e| e.other(at))
+                .filter(|&n| n != previous)
+                .collect();
+            match (self.nodes[at].kind, onward.as_slice()) {
+                (NodeKind::Junction, &[next]) if at != self.start => route.push(next),
+                _ => return Some(route),
+            }
+        }
     }
 
     pub(crate) fn node_of_level(&self, level: &str) -> Option<usize> {
@@ -489,17 +538,53 @@ mod tests {
         assert_eq!(names, ["junction", "rats", "more_rats", "webs"]);
     }
 
-    #[test]
-    fn arrow_keys_select_levels_in_that_direction() {
+    fn step_to(from: &str, dir: Dir4, progress: &Progress) -> Option<&'static str> {
         let map = &*WORLD_MAP;
-        let progress = Progress::with_completed(["rats", "more_rats"]);
-        let reached = map.reachable(&progress);
-        let more_rats = map.node_of_level("more_rats").unwrap();
-        let up = map.level_toward(more_rats, vec2(0.0, -1.0), &reached);
-        assert_eq!(up, map.node_of_level("webs"));
-        let right = map.level_toward(more_rats, vec2(1.0, 0.0), &reached);
-        assert_eq!(right, map.node_of_level("trapped_rat"));
-        let left = map.level_toward(more_rats, vec2(-1.0, 0.0), &reached);
-        assert_eq!(left, map.node_of_level("rats"));
+        let reached = map.reachable(progress);
+        let node = map.node_of_level(from).unwrap();
+        let route = map.step(node, dir, &reached)?;
+        Some(
+            map.nodes[*route.last().unwrap()]
+                .level()
+                .map_or("junction", |l| l.name),
+        )
+    }
+
+    #[test]
+    fn each_direction_steps_one_level_along_its_path() {
+        let progress = Progress::with_completed(["rats", "more_rats", "webs"]);
+        let exits: Vec<_> = Dir4::all()
+            .into_iter()
+            .filter_map(|dir| step_to("more_rats", dir, &progress))
+            .collect();
+        let mut sorted = exits.clone();
+        sorted.sort();
+        assert_eq!(sorted, ["rats", "trapped_rat", "webs"]);
+        // Webs leads back down to More Rats, not past it to Rats.
+        let back = Dir4::all()
+            .into_iter()
+            .filter_map(|dir| step_to("webs", dir, &progress))
+            .collect::<Vec<_>>();
+        assert!(back.contains(&"more_rats") && !back.contains(&"rats"));
+    }
+
+    #[test]
+    fn locked_levels_cannot_be_stepped_to() {
+        let progress = Progress::with_completed(["rats"]);
+        let reached: Vec<_> = Dir4::all()
+            .into_iter()
+            .filter_map(|dir| step_to("more_rats", dir, &progress))
+            .collect();
+        assert_eq!(reached, ["rats"]);
+    }
+
+    #[test]
+    fn every_stop_has_at_most_one_path_per_direction() {
+        let map = &*WORLD_MAP;
+        for node in 0..map.nodes.len() {
+            let exits = map.exits(node);
+            let count = exits.values().flatten().count();
+            assert_eq!(count, map.edges_at(node).count(), "node {node}");
+        }
     }
 }

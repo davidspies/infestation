@@ -5,10 +5,11 @@ use macroquad::prelude::*;
 use super::MapScene;
 use crate::atlas::SpriteId;
 use crate::grid::{Cell, Player};
+use crate::input::InputHints;
 use crate::levels::Level;
 use crate::position::Position;
 use crate::progress::Progress;
-use crate::render::board::SPRITE_SPAN;
+use crate::render::board::{SPRITE_SPAN, dir_vector};
 use crate::render::fx::{BoardSpace, ease_out_back};
 use crate::render::palette::{self, DANGER, GOLD, INK, SUCCESS, TEXT, TEXT_DIM, rgb};
 use crate::render::shapes::{
@@ -95,6 +96,9 @@ impl MapScene {
         }
         self.draw_nodes(sprites, space, ctx.progress);
         self.draw_hero(sprites, space);
+        if ctx.hints != InputHints::Touch {
+            self.draw_exits(space);
+        }
         self.draw_labels(sprites, space, layout.s);
         self.fx.draw_over(sprites, space);
         self.draw_banners(sprites, space, layout.s);
@@ -278,6 +282,38 @@ impl MapScene {
             );
         }
     }
+    /// While the hero stands still, an arrow on each open path out saying
+    /// which way to press to take it.
+    fn draw_exits(&self, space: BoardSpace) {
+        if self.walk.is_some() {
+            return;
+        }
+        let map = &*WORLD_MAP;
+        let c = space.cell;
+        let pulse = 1.0 + (self.time * 4.0).sin() * 0.06;
+        for (dir, next) in map.exits(self.at) {
+            let Some(next) = next else {
+                continue;
+            };
+            if !self.reached[next] {
+                continue;
+            }
+            // Partway along the path toward its next stop.
+            let points = map.edge_between(self.at, next).points_from(self.at);
+            let toward = (points[1] - points[0]).normalize();
+            let at = space.to_screen(points[0] + toward * 1.25);
+            let r = c * 0.36 * pulse;
+            circle(at + vec2(0.0, c * 0.05), r, faded(INK, 0.6));
+            circle(at, r, GOLD);
+            ring(at, r, c * 0.05, INK);
+            let d = dir_vector(dir);
+            let side = vec2(-d.y, d.x);
+            let tip = at + d * r * 0.55;
+            let back = at - d * r * 0.35;
+            draw_triangle(tip, back + side * r * 0.5, back - side * r * 0.5, INK);
+        }
+    }
+
     fn draw_hero(&self, sprites: &Sprites, space: BoardSpace) {
         let c = space.cell;
         let walking = self.walk.is_some();
@@ -443,7 +479,7 @@ impl MapScene {
         let mut y = p.y + pad + 8.0 * s;
         ui::heading(sprites, &region.name.to_uppercase(), vec2(x, y), s);
         y += 30.0 * s;
-        let name = level.map_or("The Keep", |l| l.display_name.as_str());
+        let name = level.map_or("Crossroads", |l| l.display_name.as_str());
         let size = (34.0 * s)
             .min(34.0 * s * w / text::width(sprites, name, Face::Display, 34.0 * s).max(1.0));
         text::draw_aligned(

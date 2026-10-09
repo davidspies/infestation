@@ -14,7 +14,6 @@ use crate::input::{InputHints, MetaInput};
 use crate::levels::Level;
 use crate::position::Position;
 use crate::progress::Progress;
-use crate::render::board::dir_vector;
 use crate::render::fx::{Blend, BoardSpace, Fx, Particle};
 use crate::render::glyphs::{Glyph, PadButton};
 use crate::render::palette::{self, GOLD, Palette};
@@ -270,10 +269,16 @@ impl MapScene {
         self.announce(ctx);
 
         let mut play = false;
-        if let Some(dir) = input.nav {
-            let target = map.level_toward(self.selected, dir_vector(dir), &self.reached);
-            match target {
-                Some(target) => self.go_to(target, ctx),
+        if let Some(dir) = input.nav
+            && self.walk.is_none()
+        {
+            match map.step(self.at, dir, &self.reached) {
+                Some(route) => {
+                    self.selected = *route.last().expect("a step goes somewhere");
+                    self.route = route.into();
+                    self.next_edge();
+                    ctx.audio.play(Sfx::UiMove);
+                }
                 None => ctx.audio.play(Sfx::UiLocked),
             }
         }

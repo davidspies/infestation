@@ -722,7 +722,11 @@ fn stick_points(gp: &GamepadContext, index: usize, dir: Dir4) -> bool {
     }
 }
 
-const NAV_REPEAT_RATE: f32 = 0.11;
+/// Menus and the map wait longer before repeating than movement does: one
+/// step there jumps a whole level, and controller presses tend to be held
+/// longer than key taps.
+const NAV_REPEAT_DELAY: f32 = 0.4;
+const NAV_REPEAT_RATE: f32 = 0.18;
 
 /// Like `input_repeat`, but repeating at a comfortable menu-scrolling rate.
 /// Stick deflection counts as a press when it starts.
@@ -736,9 +740,9 @@ fn input_repeat_nav(down: bool, pressed: bool, held: &mut f32, dt: f32) -> bool 
     if down {
         let first = *held == 0.0;
         *held += dt;
-        let repeats_before = ((*held - dt - REPEAT_DELAY) / NAV_REPEAT_RATE).floor();
-        let repeats_now = ((*held - REPEAT_DELAY) / NAV_REPEAT_RATE).floor();
-        pressed || first || (*held > REPEAT_DELAY && repeats_now > repeats_before)
+        let repeats_before = ((*held - dt - NAV_REPEAT_DELAY) / NAV_REPEAT_RATE).floor();
+        let repeats_now = ((*held - NAV_REPEAT_DELAY) / NAV_REPEAT_RATE).floor();
+        pressed || first || (*held > NAV_REPEAT_DELAY && repeats_now > repeats_before)
     } else {
         *held = 0.0;
         false
@@ -764,3 +768,29 @@ const ALL_BUTTONS: [GamepadButton; 17] = [
     GamepadButton::DPadRight,
     GamepadButton::Home,
 ];
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// How many navigation steps holding a direction for `seconds` gives.
+    fn nav_steps(seconds: f32) -> usize {
+        let dt = 1.0 / 60.0;
+        let mut held = 0.0;
+        let frames = (seconds / dt).round() as usize;
+        (0..frames)
+            .filter(|&i| input_repeat_nav(true, i == 0, &mut held, dt))
+            .count()
+    }
+
+    #[test]
+    fn an_ordinary_press_steps_once() {
+        assert_eq!(nav_steps(0.1), 1);
+        assert_eq!(nav_steps(0.35), 1);
+    }
+
+    #[test]
+    fn holding_a_direction_keeps_stepping() {
+        assert!(nav_steps(1.0) >= 3);
+    }
+}
