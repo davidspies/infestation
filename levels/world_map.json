@@ -57,6 +57,7 @@
     {"id": "cooperation/tug_of_war", "level": "cooperation/tug_of_war", "pos": [4.5, 12]},
     {"id": "cooperation/handoff", "level": "cooperation/handoff", "pos": [8.5, 12]},
     {"id": "cooperation/tunnel_vision", "level": "cooperation/tunnel_vision", "pos": [4, 20.5]},
+    {"id": "cooperation/tunnel_vision2", "level": "cooperation/tunnel_vision2", "pos": [6.5, 22]},
     {"id": "archive_plaza", "pos": [23, 5]},
     {"id": "old_levels/on_the_clock", "level": "old_levels/on_the_clock", "pos": [19, 4]},
     {"id": "old_levels/order_of_operations", "level": "old_levels/order_of_operations", "pos": [23, 2.5]},
@@ -104,6 +105,7 @@
     ["cooperation/blocked_v2", "cooperation/tug_of_war"],
     ["cooperation/blocked_v2", "cooperation/handoff"],
     ["cooperation/cooperation", "cooperation/tunnel_vision"],
+    ["cooperation/tunnel_vision", "cooperation/tunnel_vision2"],
     ["archive_plaza", "old_levels/on_the_clock"],
     ["archive_plaza", "old_levels/order_of_operations"],
     ["archive_plaza", "old_levels/overstep"]
