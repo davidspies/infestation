@@ -176,7 +176,10 @@ impl Menu {
                 let item = self.items[i];
                 if let Some(current) = slider_value(item, ctx.settings) {
                     let slider = slider_rect(*row, layout.s);
-                    let value = ((click.x - slider.x) / slider.w).clamp(0.0, 1.0);
+                    // Eleven equal zones, so 0 and 10 are as easy to hit
+                    // as the steps between.
+                    let step = ((click.x - slider.x) / slider.w * 11.0).floor();
+                    let value = step.clamp(0.0, 10.0) / 10.0;
                     self.adjust(item, value - current, ctx);
                     return None;
                 }
