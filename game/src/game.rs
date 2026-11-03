@@ -236,12 +236,16 @@ pub struct GameState {
     /// Tracks which player moved last (for note priority). None if no moves yet.
     /// If both moved in sync, this is Some(Player1) (P1 priority).
     pub(crate) last_acting_player: Option<Player>,
+    /// The resolved cause of a loss, even before its animation has finished.
+    pub(crate) death: Option<Death>,
 }
 
 /// Game wrapper combining state and move handling.
 #[derive(Clone)]
 pub struct Game {
     pub(crate) state: GameState,
+    /// Each restart preserves its attempt, including the moves leading to it.
+    past_attempts: Vec<GameState>,
     /// Animation state. When Some, render from handler.grid.
     /// state.grid always has the final resolved state.
     pub(crate) animation: Option<MoveHandler>,
@@ -260,6 +264,7 @@ impl GameState {
             action_history: Vec::new(),
             queued_actions: None,
             last_acting_player: None,
+            death: None,
         }
     }
 
@@ -337,17 +342,29 @@ impl Game {
     pub(crate) fn new(grid: Grid) -> Self {
         Self {
             state: GameState::new(grid),
+            past_attempts: Vec::new(),
             animation: None,
         }
     }
 
+    pub(crate) fn can_undo(&self) -> bool {
+        self.state.history.len() > 1 || !self.past_attempts.is_empty()
+    }
+
+    pub(crate) fn can_restart(&self) -> bool {
+        self.state.history.len() > 1
+    }
+
     pub(crate) fn restart(&mut self) {
-        self.state.grid = self.state.initial_grid.clone();
-        self.state.history = vec![self.state.grid.clone()];
-        self.state.action_history.clear();
+        if !self.can_restart() {
+            return;
+        }
+        let fresh = GameState::new(self.state.initial_grid.clone());
+        let mut previous = std::mem::replace(&mut self.state, fresh);
+        // A rewind restores resolved turns, never input still waiting to run.
+        previous.queued_actions = None;
+        self.past_attempts.push(previous);
         self.animation = None;
-        self.state.queued_actions = None;
-        self.state.last_acting_player = None;
     }
 
     pub(crate) fn undo(&mut self) {
@@ -355,10 +372,13 @@ impl Game {
             self.state.history.pop();
             self.state.action_history.pop();
             self.state.grid = self.state.history.last().unwrap().clone();
-            self.animation = None;
-            self.state.queued_actions = None;
             self.state.last_acting_player = None;
+            self.state.death = None;
+        } else if let Some(previous) = self.past_attempts.pop() {
+            self.state = previous;
         }
+        self.animation = None;
+        self.state.queued_actions = None;
     }
 
     pub(crate) fn is_animating(&self) -> bool {
@@ -428,6 +448,7 @@ impl Game {
 
         resolver.do_player_moves(actions);
         resolver.resolve_all();
+        self.state.death = resolver.events.iter().copied().find_map(GameEvent::death);
 
         self.state.history.push(self.state.grid.clone());
         self.state.action_history.push(actions.to_vec());
