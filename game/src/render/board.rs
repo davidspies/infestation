@@ -179,6 +179,8 @@ pub(crate) struct BoardView<'a> {
     pub(crate) shake: f32,
     /// Preregistered moves, drawn translucent at their destination.
     pub(crate) ghosts: &'a [(Position, Cell)],
+    /// Touch-selected hero, highlighted at its animated position.
+    pub(crate) selected_player: Option<Player>,
 }
 
 pub(crate) fn draw(sprites: &Sprites, layout: BoardLayout, view: &BoardView) {
@@ -565,6 +567,17 @@ fn draw_creatures(sprites: &Sprites, layout: BoardLayout, grid: &Grid, view: &Bo
                 c * (0.36 + pulse * 0.02),
                 faded(color, (0.16 + pulse * 0.06) * k.alpha),
             );
+            // A queued ghost is not the hero's current location. Only the
+            // opaque, animated creature gets the selection ring.
+            if view.selected_player == Some(player) && k.alpha == 1.0 {
+                draw_circle_lines(
+                    base.x,
+                    base.y + c * 0.04,
+                    c * 0.52,
+                    (c * 0.06).max(1.5),
+                    color,
+                );
+            }
         }
     }
     for k in &creatures {

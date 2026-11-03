@@ -25,6 +25,7 @@ impl LevelScene {
         let slab = board.slab_rect();
         let h = 44.0 * s;
         let (before, glyph, after) = match ctx.hints {
+            InputHints::Touch => ("Tap", None, "Restart again"),
             InputHints::Keyboard => ("Press", Some(Glyph::Key("R")), "again to restart"),
             InputHints::Controller(ty) => (
                 "Press",
@@ -299,7 +300,11 @@ impl LevelScene {
                     .map(|(b, action)| (b.rect, action)),
             );
         }
-        let rows = control_rows(ctx.hints, self.player_count());
+        let rows = control_rows(
+            ctx.hints,
+            self.player_count(),
+            crate::touch_ui::controls_visible(),
+        );
         if layout.portrait() {
             let bar = portrait_bar(layout);
             for (rect, action) in bar {
@@ -345,6 +350,11 @@ struct ActionGlyphs {
 }
 fn action_glyphs(hints: InputHints) -> ActionGlyphs {
     match hints {
+        InputHints::Touch => ActionGlyphs {
+            undo: None,
+            restart: None,
+            confirm: None,
+        },
         InputHints::Keyboard => ActionGlyphs {
             undo: Some(Glyph::Key("U")),
             restart: Some(Glyph::Key("R")),
@@ -357,7 +367,11 @@ fn action_glyphs(hints: InputHints) -> ActionGlyphs {
         },
     }
 }
-fn control_rows(hints: InputHints, players: usize) -> Vec<ControlRow> {
+fn control_rows(
+    hints: InputHints,
+    players: usize,
+    touch_controls_visible: bool,
+) -> Vec<ControlRow> {
     let row = |icon, label, glyphs: Vec<Glyph>, action| ControlRow {
         icon,
         label,
@@ -367,6 +381,19 @@ fn control_rows(hints: InputHints, players: usize) -> Vec<ControlRow> {
     let two = players > 1;
     let mut rows = Vec::new();
     match hints {
+        // The dock already provides these actions. Keep native buttons only
+        // when it is hidden, without suggesting physical keys or controllers.
+        InputHints::Touch if touch_controls_visible => {}
+        InputHints::Touch => {
+            for (icon, label, action) in [
+                (SpriteId::IconWait, "Wait", UiAction::Wait),
+                (SpriteId::IconUndo, "Undo", UiAction::Undo),
+                (SpriteId::IconRestart, "Restart", UiAction::Restart),
+                (SpriteId::IconMenu, "Menu", UiAction::Menu),
+            ] {
+                rows.push(row(icon, label, Vec::new(), Some(action)));
+            }
+        }
         InputHints::Keyboard if !two => {
             rows.push(row(
                 SpriteId::IconPlay,
@@ -563,7 +590,11 @@ fn draw_sidebar(
     let rows_top = sidebar_row_rects(layout, rows.len())
         .first()
         .map_or(p.bottom(), |r| r.y);
-    let controls_heading = rows_top - 26.0 * s;
+    let controls_heading = if rows.is_empty() {
+        p.bottom() - pad
+    } else {
+        rows_top - 26.0 * s
+    };
     let space = Rect::new(x, y, w, controls_heading - y - 12.0 * s);
     let used = draw_dialogue(sprites, scene, space, s, false);
     y += used + if used > 0.0 { 18.0 * s } else { 0.0 };
@@ -574,7 +605,9 @@ fn draw_sidebar(
         s,
     );
 
-    ui::heading(sprites, "CONTROLS", vec2(x, controls_heading + 8.0 * s), s);
+    if !rows.is_empty() {
+        ui::heading(sprites, "CONTROLS", vec2(x, controls_heading + 8.0 * s), s);
+    }
     for (row, rect) in rows.iter().zip(sidebar_row_rects(layout, rows.len())) {
         draw_control_row(sprites, scene, row, rect, s);
     }
@@ -817,17 +850,6 @@ fn draw_control_row(sprites: &Sprites, scene: &LevelScene, row: &ControlRow, rec
         18.0 * s,
         color,
     );
-    if row.glyphs.is_empty() {
-        text::draw_aligned(
-            sprites,
-            "drag from hero",
-            vec2(rect.right() - 6.0 * s, cy),
-            Align::Right,
-            Face::Body,
-            16.0 * s,
-            TEXT_DIM,
-        );
-    }
     let glyph_height = |g: Glyph| match g {
         Glyph::Arrows | Glyph::Wasd => 33.0 * s,
         _ => 26.0 * s,
@@ -852,6 +874,10 @@ fn menu_button_rect(top: Rect, s: f32) -> Rect {
 }
 /// The portrait-mode button bar: Undo, Wait, Restart, Menu.
 fn portrait_bar(layout: &ScreenLayout) -> Vec<(Rect, UiAction)> {
+    // Hidden controls must not leave clickable targets over the enlarged board.
+    if layout.panel.h == 0.0 {
+        return Vec::new();
+    }
     let s = layout.s;
     let p = layout.panel;
     let pad = 10.0 * s;
@@ -931,6 +957,10 @@ fn draw_portrait_hud(sprites: &Sprites, scene: &LevelScene, ctx: &Ctx, layout: &
             TEXT,
         );
     }
+    // The title/status header above stays even when the secondary panel is gone.
+    if layout.panel.h == 0.0 {
+        return;
+    }
     ui::panel(layout.panel, s);
     let bar = portrait_bar(layout);
     let bar_top = bar.first().map_or(layout.panel.bottom(), |(r, _)| r.y);
@@ -945,6 +975,7 @@ fn draw_portrait_hud(sprites: &Sprites, scene: &LevelScene, ctx: &Ctx, layout: &
         draw_dialogue(sprites, scene, space, s, true);
     } else {
         let hint = match ctx.hints {
+            InputHints::Touch => "Open the menu to show on-screen controls.",
             InputHints::Keyboard => "Arrows or WASD to move. Space waits a turn.",
             InputHints::Controller(_) => "D-pad or stick to move.",
         };
@@ -1012,5 +1043,49 @@ impl Hud {
         } else {
             draw_sidebar(sprites, scene, ctx, layout, &self.rows);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use quad_gamepad::ControllerType;
+
+    #[test]
+    fn touch_hud_avoids_duplicate_controls_but_keeps_hidden_dock_actions_reachable() {
+        for players in [1, 2] {
+            assert!(control_rows(InputHints::Touch, players, true).is_empty());
+
+            let fallback = control_rows(InputHints::Touch, players, false);
+            assert_eq!(
+                fallback
+                    .iter()
+                    .filter_map(|row| row.action)
+                    .collect::<Vec<_>>(),
+                [
+                    UiAction::Wait,
+                    UiAction::Undo,
+                    UiAction::Restart,
+                    UiAction::Menu
+                ]
+            );
+            assert!(fallback.iter().all(|row| row.glyphs.is_empty()));
+
+            // Manually showing the dock while using a physical device must not
+            // remove that device's reference or its native clickable actions.
+            for hints in [
+                InputHints::Keyboard,
+                InputHints::Controller(ControllerType::PlayStation),
+            ] {
+                let rows = control_rows(hints, players, true);
+                assert!(rows.iter().any(|row| row.action == Some(UiAction::Menu)));
+                assert!(rows.iter().all(|row| !row.glyphs.is_empty()));
+            }
+        }
+
+        let touch_glyphs = action_glyphs(InputHints::Touch);
+        assert!(touch_glyphs.undo.is_none());
+        assert!(touch_glyphs.restart.is_none());
+        assert!(touch_glyphs.confirm.is_none());
     }
 }

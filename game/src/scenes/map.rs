@@ -523,6 +523,7 @@ impl MapScene {
             )
         };
         let glyph = match ctx.hints {
+            InputHints::Touch => None,
             InputHints::Keyboard => Some(Glyph::Key("Enter")),
             InputHints::Controller(ty) => Some(Glyph::Pad(ty, PadButton::South)),
         };

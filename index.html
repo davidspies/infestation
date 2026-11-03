@@ -1,99 +1,116 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="theme-color" content="#07060a">
-    <title>Infestation</title>
-    <style>
-        html, body {
-            margin: 0;
-            padding: 0;
-            background: #07060a;
-            height: 100vh;
-            overflow: hidden;
-        }
-        .game-container {
-            position: relative;
-            width: 100vw;
-            height: 100vh;
-        }
-        canvas {
-            position: relative;
-            z-index: 1;
-            width: 100%;
-            height: 100%;
-            outline: none;
-            display: block;
-        }
-        /* Sits behind the canvas, which hides it once the game draws. */
-        .loading {
-            position: absolute;
-            inset: 0;
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-            align-items: center;
-            gap: 1.4rem;
-            color: #a79fb5;
-            font-family: system-ui, sans-serif;
-            letter-spacing: 0.12em;
-        }
-        .loading .spinner {
-            width: 42px;
-            height: 42px;
-            border: 4px solid #2b2538;
-            border-top-color: #f2c14e;
-            border-radius: 50%;
-            animation: spin 0.9s linear infinite;
-        }
-        @keyframes spin {
-            to { transform: rotate(360deg); }
-        }
-        canvas:not(:focus) + .focus-overlay {
-            opacity: 1;
-            pointer-events: auto;
-        }
-        .focus-overlay {
-            position: absolute;
-            inset: 0;
-            z-index: 2;
-            background: rgba(7, 6, 10, 0.6);
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            cursor: pointer;
-            opacity: 0;
-            pointer-events: none;
-            transition: opacity 0.2s;
-        }
-        .focus-overlay span {
-            padding: 0.7em 1.6em;
-            border-radius: 999px;
-            background: #f2c14e;
-            color: #1d1726;
-            font-family: system-ui, sans-serif;
-            font-weight: 800;
-            font-size: 1.6rem;
-            box-shadow: 0 6px 24px rgba(0, 0, 0, 0.5);
-        }
-    </style>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#100d16">
+  <meta name="description" content="Play Infestation, David Spies’s turn-based puzzle game, with touch, keyboard or controller controls.">
+  <title>Infestation</title>
+  <link rel="stylesheet" href="touch.css">
 </head>
-<body>
-    <div class="game-container">
-        <div class="loading"><div class="spinner"></div>LOADING</div>
-        <canvas id="glcanvas" tabindex="1" width="1024" height="1024"></canvas>
-        <div class="focus-overlay" onclick="document.getElementById('glcanvas').focus()"><span>&#9654; Click to play</span></div>
-    </div>
-    <script src="js/gl.js"></script>
-    <script src="js/sapp_jsutils.js"></script>
-    <script src="js/audio.js"></script>
-    <script src="js/quad-storage.js"></script>
-    <script src="js/quad-url.js"></script>
-    <script src="js/quad-gamepad.js"></script>
-    <script src="js/screen-wake.js"></script>
-    <script src="js/progress.js"></script>
-    <script src="js/desktop-only.js"></script>
-    <script>loadIfSupported("target/wasm32-unknown-unknown/release/infestation.wasm");</script>
+<body data-input-mode="touch" data-wasm-path="target/wasm32-unknown-unknown/release/infestation.wasm">
+  <div class="app" id="app">
+    <header class="topbar">
+      <div class="brand"><strong>INFESTATION</strong></div>
+      <nav aria-label="Game tools">
+        <button type="button" class="tool" data-code="Escape" aria-label="Game menu" title="Game menu">☰</button>
+        <button type="button" class="tool" id="fullscreen" aria-label="Enter fullscreen" title="Fullscreen">⛶</button>
+        <button type="button" class="tool" id="show-help" aria-label="Controls and help" title="Help">?</button>
+      </nav>
+    </header>
+    <main class="play-area">
+      <section class="game-container" aria-label="Infestation game">
+        <canvas id="glcanvas" tabindex="0" width="1024" height="1024" aria-label="Game board. Use the direction buttons to move, Wait to pass a turn, and Undo to take back a move."></canvas>
+        <div class="level-tip" id="level-tip">
+          <aside class="tip-card" data-tip-card role="note" tabindex="0" hidden>
+            <div class="tip-label">ROOM TIP <span data-tip-player></span></div>
+            <div class="tip-copy"><span data-tip-full aria-hidden="true"></span><span data-tip-reveal aria-hidden="true"></span></div>
+            <button type="button" class="tip-hide" data-tip-hide aria-label="Minimize room tip" title="Minimize tip">−</button>
+          </aside>
+          <button type="button" class="tip-show" data-tip-show aria-label="Show room tip" hidden>Room tip <span aria-hidden="true">↑</span></button>
+        </div>
+        <div class="loading" id="loading" role="status" aria-live="polite" aria-atomic="true">
+          <div class="loading-message">
+            <h2 id="loading-label">Loading game…</h2>
+            <p id="load-note">Preparing the game and audio.</p>
+          </div>
+        </div>
+        <div class="toast" id="toast" role="status" hidden></div>
+      </section>
+      <section class="controller" id="controller" aria-label="Touch controls">
+        <div class="controller-meta" id="controller-meta" hidden>
+          <div class="players" role="group" aria-label="Hero to control">
+            <span class="meta-label">HERO</span>
+            <button type="button" class="player selected" data-player="p1" aria-label="Control blue hero" aria-pressed="true"><span class="hero-portrait" aria-hidden="true"></span><span class="hero-number" aria-hidden="true">1</span></button>
+            <button type="button" class="player" data-player="p2" aria-label="Control orange hero" aria-pressed="false"><span class="hero-portrait" aria-hidden="true"></span><span class="hero-number" aria-hidden="true">2</span></button>
+          </div>
+          <button type="button" class="sync" id="sync" aria-pressed="false" title="Queue a move for each hero, then take both turns together"><span class="sync-light" aria-hidden="true"></span><span id="sync-label">Move together</span></button>
+        </div>
+        <div class="controller-body">
+          <div class="dpad" role="group" aria-label="Movement">
+            <button type="button" class="direction up" data-direction="up" aria-label="Move up" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 14 7-7 7 7"/></svg></button>
+            <button type="button" class="direction left" data-direction="left" aria-label="Move left" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14 5-7 7 7 7"/></svg></button>
+            <span class="dpad-center" aria-hidden="true"></span>
+            <button type="button" class="direction right" data-direction="right" aria-label="Move right" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m10 5 7 7-7 7"/></svg></button>
+            <button type="button" class="direction down" data-direction="down" aria-label="Move down" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 10 7 7 7-7"/></svg></button>
+          </div>
+          <div class="actions" id="play-actions">
+            <button type="button" class="action" data-code="KeyR" aria-label="Restart level, press twice to confirm" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 11a9 9 0 1 1 2.6 7M3 4v7h7"/></svg><span>Restart</span></button>
+            <button type="button" class="action" data-code="Space" aria-label="Wait one turn" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3h14M5 21h14M7 3v4l5 5-5 5v4M17 3v4l-5 5 5 5v4"/></svg><span>Wait</span></button>
+            <button type="button" class="action" data-code="KeyU" aria-label="Undo last move" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8 4-5 5 5 5M3 9h10a7 7 0 0 1 0 14" transform="translate(0 -2)"/></svg><span>Undo</span></button>
+          </div>
+          <div class="context-actions" id="context-actions" hidden>
+            <button type="button" class="confirm" id="context-confirm" data-code="Enter" disabled><span id="context-label">Play</span><span aria-hidden="true">→</span></button>
+            <p id="context-hint">Tap the game or use the pad.</p>
+          </div>
+        </div>
+        <p class="dock-note" id="dock-note">Tap to move. Think as long as you like.</p>
+      </section>
+    </main>
+  </div>
+  <dialog id="help" aria-labelledby="help-title">
+    <div class="help-heading"><div><div class="eyebrow">FIELD GUIDE</div><h2 id="help-title">How to play</h2></div><button type="button" id="close-help" class="tool" aria-label="Close help">×</button></div>
+    <p>Clear each room of rats. Everything moves when you do, so there’s no rush.</p>
+    <p>Hints follow the input you use. Open ☰ and change On-screen controls: shown / hidden to show or hide the pad. Your choice is saved, and switching devices keeps your chosen layout.</p>
+    <dl class="control-guide" data-input-guide="touch">
+      <div><dt>Directional pad</dt><dd>Move in four directions. Your sword turns with you. Hold to keep moving. The center of the pad is inactive.</dd></div>
+      <div><dt>Wait</dt><dd>Pass one turn without moving. In a two-hero room, both heroes wait.</dd></div>
+      <div><dt>Undo / Restart</dt><dd>Undo takes back moves. Tap Restart twice within two seconds to start the room again.</dd></div>
+      <div><dt>Two heroes</dt><dd>Hero controls appear only in rooms with two heroes. Tap a portrait to select the blue or orange hero; the matching ring marks them on the board. Turn on Move together, choose one hero’s direction, switch portraits, then choose the other’s direction. Turn it off to clear queued moves and return to ordinary moves. Wait makes both heroes wait.</dd></div>
+      <div><dt>Map & menus</dt><dd>Tap the game’s buttons and menu items directly; drag the map to explore. Play and Enter room appear on the title and map screens. After a win, tap Continue on the win card. Undo stays in its usual position.</dd></div>
+      <div><dt>Settings & control sides</dt><dd>Open ☰ to change settings. Drag the Music, Sound, and Screen shake bars, or tap a point on a bar. Tap D-pad: left or D-pad: right to swap the pad and action buttons; your preference is saved in this browser. Swipe the settings list to reach more options on smaller screens.</dd></div>
+      <div><dt>Room tips</dt><dd>Tips appear above the controls without moving or resizing the puzzle. Scroll a long tip to read it all. Tap − to minimize it, then Room tip to reopen it.</dd></div>
+      <div><dt>More room</dt><dd>The game removes its duplicate portrait instruction panel while the on-screen controls are visible. Set On-screen controls to hidden in ☰ to hide the pad and restore the game's own buttons. The settings panel scrolls when its options need more room.</dd></div>
+    </dl>
+    <dl class="control-guide" data-input-guide="keyboard">
+      <div><dt>Move / Wait</dt><dd>Use the arrow keys or WASD to move. Space passes a turn. Everything waits until you act.</dd></div>
+      <div><dt>Undo / Restart</dt><dd>U takes back moves. Press R twice within two seconds to restart.</dd></div>
+      <div><dt>Two heroes</dt><dd>Without a controller, arrow keys move the blue hero and WASD moves the orange hero. With a controller connected, both key sets move the orange hero. Hold right Shift with arrows or left Shift with WASD to queue a synchronized move. Space makes both heroes wait.</dd></div>
+      <div><dt>Menus / Map</dt><dd>Escape opens the menu. Use directions to choose an item and Enter to confirm, or click directly. Drag the map to explore. Settings sliders support dragging.</dd></div>
+    </dl>
+    <dl class="control-guide" data-input-guide="controller">
+      <div><dt>Move / Wait</dt><dd>Use the D-pad or left stick to move. The bottom or right face button passes a turn. The game shows the matching button symbols for your controller.</dd></div>
+      <div><dt>Undo / Restart</dt><dd>The left or top face button undoes a move. Press the left shoulder button or left trigger twice within two seconds to restart.</dd></div>
+      <div><dt>Two heroes</dt><dd>The first controller moves the blue hero. A second controller or the keyboard moves the orange hero. Hold the right shoulder button to queue a synchronized move, then choose a move for the other hero.</dd></div>
+      <div><dt>Menus / Map</dt><dd>Start opens the menu. Use the D-pad or stick to navigate and the bottom face button to confirm. Directions also adjust settings sliders.</dd></div>
+    </dl>
+    <div class="progress-note"><strong>Your progress</strong><p>Completed rooms and settings are saved in this browser.</p></div>
+    <div class="help-links"><a href="https://github.com/davidspies/infestation" target="_blank" rel="noopener">Source code ↗</a></div>
+    <p class="attribution">Game by David Spies. The game credits its art, music and sound effects as AI generated.</p>
+    <button type="button" class="help-done" id="help-done">Back to the game <span aria-hidden="true">→</span></button>
+  </dialog>
+  <script src="js/gl.js"></script>
+  <script src="js/sapp_jsutils.js"></script>
+  <script src="js/audio.js"></script>
+  <script src="js/quad-storage.js"></script>
+  <script src="js/quad-url.js"></script>
+  <script src="js/quad-gamepad.js"></script>
+  <script src="js/screen-wake.js"></script>
+  <script src="js/progress.js"></script>
+  <script src="js/touch-controls.js"></script>
+  <script src="js/touch-tips.js"></script>
+  <script src="js/touch-state.js"></script>
+  <script src="js/input-mode.js"></script>
+  <script src="js/touch-shell.js"></script>
 </body>
 </html>

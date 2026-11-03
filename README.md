@@ -6,6 +6,13 @@ Play the game at https://davidspies.github.io/infestation
 
 AI Disclaimer: This game uses entirely AI-generated artwork, music and sound effects.
 
+## Touch controls
+
+The web version supports touchscreens alongside keyboard and controller play.
+Use the game menu to show or hide the on-screen controls, swap their sides,
+and adjust the delay between repeated moves. Open Help (?) in the game for
+instructions.
+
 ## Development
 
 - `./serve.sh` builds the web version and serves it at http://localhost:8080.
@@ -17,6 +24,19 @@ AI Disclaimer: This game uses entirely AI-generated artwork, music and sound eff
   them. Levels unlock the way the old hub levels gated them: you can walk
   through junctions and completed levels, and play any level you can reach.
 - `cargo run -r --bin editor <level>` opens the level editor.
+
+### Tests
+
+Run the Rust tests first to prepare the browser runtime used by the
+JavaScript tests:
+
+```sh
+cargo test --locked -p infestation -p scenario_tests --lib
+node --test tests/*.test.cjs
+```
+
+On Ubuntu, native tests need `libasound2-dev`, `libudev-dev` and `pkg-config`.
+The browser tests use Node.js's built-in test runner without npm dependencies.
 
 ### Generated assets
 
@@ -34,5 +54,5 @@ changing them:
 `SHOTS_DIR=/tmp/shots cargo test -r -p infestation screenshots -- --ignored --test-threads=1`
 renders scripted scenes (title, levels, effects frame by frame, the world map
 and a full title-to-map-to-level flow) to PNGs for visual review. `W`/`H` set
-the window size, `HINTS=pad` controller prompts, and `ONLY=` a
+the window size, `HINTS=pad` controller prompts, `HINTS=touch` touch prompts, and `ONLY=` a
 comma-separated list of shot name prefixes.

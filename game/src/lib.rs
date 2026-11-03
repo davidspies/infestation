@@ -15,6 +15,7 @@ mod screenshots;
 pub(crate) mod settings;
 pub mod solution;
 pub(crate) mod storage;
+pub(crate) mod touch_ui;
 pub(crate) mod world_map;
 
 pub mod app;

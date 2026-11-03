@@ -15,7 +15,11 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  test:
+    uses: ./.github/workflows/touch-tests.yml
+
   build:
+    needs: test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -64,9 +68,12 @@ jobs:
             cp "$1/target/wasm32-unknown-unknown/release/infestation.wasm" "$2/"
           }
           package . dist
+          # The current touch page uses a stylesheet and hero portraits.
+          cp touch.css dist/
+          cp assets/sprites.png dist/assets/
           package after dist/after
-          # Phones and tablets get a notice instead of the game, on /after/
-          # too: its page (not its game) gains the check.
+          # Keep the historical /after/ version desktop-only: its page
+          # (not its game) gains the existing phone and tablet check.
           cp js/desktop-only.js dist/after/js/
           sed -i 's|<script>load(|<script src="js/desktop-only.js"></script><script>loadIfSupported(|' \
             dist/after/index.html

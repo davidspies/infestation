@@ -17,10 +17,14 @@ use crate::render::palette::{self, Palette};
 use crate::render::shapes::radial_gradient;
 use crate::render::ui::ScreenLayout;
 use crate::scenes::{Ctx, FrameInput, Request};
+use crate::touch_ui::{self, Screen as TouchScreen, State as TouchState};
 use crate::world_map::{Theme, WORLD_MAP};
 
 mod director;
 mod hud;
+
+#[cfg(test)]
+mod touch_tests;
 
 /// Grace period for the second player to input before a solo action fires.
 const SYNC_GRACE_PERIOD: f32 = 0.064;
@@ -124,8 +128,60 @@ impl LevelScene {
         self.game.state.player_count()
     }
 
+    pub(crate) fn touch_state(&self) -> TouchState<'static> {
+        let (screen, mut actions) = match self.play_state() {
+            PlayState::Playing => (TouchScreen::Playing, touch_ui::DIRECTION | touch_ui::WAIT),
+            PlayState::Won => (TouchScreen::Won, 0),
+            PlayState::GameOver => (TouchScreen::Lost, 0),
+        };
+        if self.action_enabled(UiAction::Undo) {
+            actions |= touch_ui::UNDO;
+        }
+        if self.action_enabled(UiAction::Restart) {
+            actions |= touch_ui::RESTART;
+        }
+        TouchState {
+            room: self.level.name,
+            screen,
+            players: self.player_count(),
+            actions,
+        }
+    }
+
+    /// The web page supplies controls and an independent room-tip overlay.
+    /// Never depend on dialogue here: stepping onto/off a note must not move
+    /// or resize the board. Landscape keeps its status and field guide panel.
+    fn screen_layout(&self, layout: ScreenLayout) -> ScreenLayout {
+        if layout.portrait() && crate::touch_ui::controls_visible() {
+            layout.without_portrait_panel()
+        } else {
+            layout
+        }
+    }
+
+    /// Send the current note separately from board layout. Keeping its identity
+    /// while temporarily hidden preserves dismissal/scroll across pause menus.
+    pub(crate) fn publish_touch_tip(&self, layout: &ScreenLayout, unobscured: bool) {
+        let player = match self.dialogue.player {
+            Some(Player::Player1) => 1,
+            Some(Player::Player2) => 2,
+            None => 0,
+        };
+        crate::touch_ui::set_tip(
+            self.level.name,
+            &self.dialogue.text,
+            player,
+            self.dialogue.shown as u32,
+            unobscured
+                && layout.portrait()
+                && !self.card_visible()
+                && crate::touch_ui::controls_visible(),
+        );
+    }
+
     /// Where the hero is on screen, for centering transitions.
     pub(crate) fn focus(&self, layout: &ScreenLayout) -> Vec2 {
+        let layout = &self.screen_layout(*layout);
         let board = self.board_layout(layout);
         self.game
             .state
@@ -184,6 +240,15 @@ impl LevelScene {
         }
     }
 
+    /// Discard input waiting for another hero or an animation to finish.
+    /// The current turn and its animation keep running.
+    pub(crate) fn cancel_pending_input(&mut self) {
+        self.pending = EnumMap::default();
+        self.pending_timer = 0.0;
+        self.game.state.queued_actions = None;
+        self.restart_armed = None;
+    }
+
     /// Reset presentation after undo/restart.
     fn after_rewind(&mut self) {
         self.pending = EnumMap::default();
@@ -202,6 +267,7 @@ impl LevelScene {
         input: &FrameInput,
         layout: &ScreenLayout,
     ) -> Option<Request> {
+        let layout = &self.screen_layout(*layout);
         let dt = input.dt;
         self.time += dt;
         let board = self.board_layout(layout);
@@ -282,23 +348,24 @@ impl LevelScene {
     fn queue_player_input(&mut self, input: &FrameInput, wait_clicked: bool) {
         let mut player_actions = input.players;
         if wait_clicked {
-            let stall = PlayerInput {
-                action: Action::Stall,
-                synced: false,
-                fresh: true,
-            };
-            for (_, action) in player_actions.iter_mut() {
-                *action = action.or(Some(stall));
-            }
+            PlayerInput::add_wait(&mut player_actions, true);
         }
         let player_count = self.game.state.player_count();
         for (player, player_action) in player_actions.iter().take(player_count) {
             if let Some(input) = player_action {
-                self.pending[player] = Some(PendingAction {
-                    action: input.action,
-                    synced: input.synced,
-                    fresh: input.fresh,
-                });
+                if input.ready {
+                    self.pending[player] = Some(PendingAction {
+                        action: input.action,
+                        synced: input.synced,
+                        fresh: input.fresh,
+                    });
+                } else if self.pending[player].is_some_and(|p| !p.fresh && p.action != input.action)
+                {
+                    self.pending[player] = None;
+                }
+                // Between touch repeat ticks, preserve the pending move while
+                // its direction is still held. It may be waiting for an
+                // animation or the second hero, but must not be re-enqueued.
             } else if self.pending[player].is_some_and(|p| !p.fresh) {
                 // Key was released — clear held-repeat pending so it doesn't
                 // fire as a stale buffered move after animation finishes.
@@ -440,6 +507,7 @@ impl LevelScene {
     }
 
     pub(crate) fn draw(&self, ctx: &Ctx, layout: &ScreenLayout) {
+        let layout = &self.screen_layout(*layout);
         let sprites = ctx.sprites;
         let board = self.board_layout(layout);
         draw_backdrop(&self.palette, layout.main.center());
@@ -455,6 +523,11 @@ impl LevelScene {
                 time: self.time,
                 shake: ctx.settings.screen_shake,
                 ghosts: &ghosts,
+                selected_player: if self.player_count() == 2 {
+                    touch_ui::selected_player()
+                } else {
+                    None
+                },
             },
         );
         self.draw_intro(sprites, board, layout.s);
