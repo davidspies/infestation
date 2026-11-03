@@ -7,7 +7,8 @@
       "text": {
         "keyboard_only": "Hold right shift (player 1) or left shift (player 2) while moving to synchronize your move with the other player. When synchronized, your move won't execute until both players have moved.",
         "one_controller": "Hold RB/R1 (player 1) or shift (player 2) while moving to synchronize. Synchronized moves wait for both players to act before executing.",
-        "two_controllers": "Hold RB/R1 on your controller while moving to synchronize your move with the other player. Synchronized moves wait for both players to act before executing."
+        "two_controllers": "Hold RB/R1 on your controller while moving to synchronize your move with the other player. Synchronized moves wait for both players to act before executing.",
+        "touch": "Turn on Move together. Choose a direction for one hero, tap the other portrait, then choose their direction. Both moves happen together once each hero has a move."
       }
     },
     {
@@ -16,7 +17,8 @@
       "text": {
         "keyboard_only": "Hold right shift (player 1) or left shift (player 2) while moving to synchronize your move with the other player. When synchronized, your move won't execute until both players have moved.",
         "one_controller": "Hold RB/R1 (player 1) or shift (player 2) while moving to synchronize. Synchronized moves wait for both players to act before executing.",
-        "two_controllers": "Hold RB/R1 on your controller while moving to synchronize your move with the other player. Synchronized moves wait for both players to act before executing."
+        "two_controllers": "Hold RB/R1 on your controller while moving to synchronize your move with the other player. Synchronized moves wait for both players to act before executing.",
+        "touch": "Turn on Move together. Choose a direction for one hero, tap the other portrait, then choose their direction. Both moves happen together once each hero has a move."
       }
     },
     {
@@ -25,7 +27,8 @@
       "text": {
         "keyboard_only": "Two players! Player 1: arrow keys to move. Player 2: WASD to move.",
         "one_controller": "Two players! Player 1: controller to move, A/X to stall. Player 2: arrow keys or WASD to move, space to stall.",
-        "two_controllers": "Two players! Player 1: controller 1 to move, A/X to stall. Player 2: controller 2 to move, A/X to stall."
+        "two_controllers": "Two players! Player 1: controller 1 to move, A/X to stall. Player 2: controller 2 to move, A/X to stall.",
+        "touch": "Two heroes! Tap the blue or orange portrait to choose who you control, then use the D-pad to move them. Wait makes both heroes wait."
       }
     },
     {
@@ -34,7 +37,8 @@
       "text": {
         "keyboard_only": "Two players! Player 1: arrow keys to move. Player 2: WASD to move.",
         "one_controller": "Two players! Player 1: controller to move, A/X to stall. Player 2: arrow keys or WASD to move, space to stall.",
-        "two_controllers": "Two players! Player 1: controller 1 to move, A/X to stall. Player 2: controller 2 to move, A/X to stall."
+        "two_controllers": "Two players! Player 1: controller 1 to move, A/X to stall. Player 2: controller 2 to move, A/X to stall.",
+        "touch": "Two heroes! Tap the blue or orange portrait to choose who you control, then use the D-pad to move them. Wait makes both heroes wait."
       }
     }
   ]

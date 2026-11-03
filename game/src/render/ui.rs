@@ -16,7 +16,8 @@ use crate::sprites::{Face, Sprites};
 pub(crate) struct ScreenLayout {
     /// The board or map.
     pub(crate) main: Rect,
-    /// Sidebar (landscape) or bottom panel (portrait).
+    /// Sidebar (landscape) or bottom panel (portrait). A zero height means the
+    /// level's redundant instruction panel has been removed.
     pub(crate) panel: Rect,
     /// Title bar across the top (portrait only).
     pub(crate) top: Option<Rect>,
@@ -63,6 +64,17 @@ impl ScreenLayout {
 
     pub(crate) fn portrait(&self) -> bool {
         self.top.is_some()
+    }
+
+    /// Give a redundant portrait instruction panel's space back to the board.
+    /// Only the level opts into this; maps and overlays keep their own layout.
+    pub(crate) fn without_portrait_panel(mut self) -> Self {
+        assert!(self.portrait());
+        if self.panel.h > 0.0 {
+            self.main.h = self.panel.bottom() - self.main.y;
+            self.panel.h = 0.0;
+        }
+        self
     }
 }
 

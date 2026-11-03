@@ -6,7 +6,8 @@
       "y": 6,
       "text": {
         "controller": "Use the D-pad or left joystick to move",
-        "keyboard": "Use the arrow keys or WASD to move"
+        "keyboard": "Use the arrow keys or WASD to move",
+        "touch": "Use the D-pad to move. Your sword turns with you."
       }
     },
     {

@@ -39,6 +39,7 @@ fn acting(action: Action) -> FrameInput {
         action,
         synced: false,
         fresh: true,
+        ready: true,
     });
     input
 }
@@ -186,6 +187,7 @@ fn screenshots() {
         audio.sfx_volume = 0.0;
         let hints = match std::env::var("HINTS").as_deref() {
             Ok("pad") => InputHints::Controller(quad_gamepad::ControllerType::PlayStation),
+            Ok("touch") => InputHints::Touch,
             _ => InputHints::Keyboard,
         };
 
@@ -394,7 +396,10 @@ fn screenshots() {
             nav.nav = Some(Dir4::South);
             let still = idle(1.0 / 60.0);
             for i in 0..30 {
-                menu.update(&mut ctx, if i == 0 { &nav } else { &still }, &layout);
+                assert!(
+                    menu.update(&mut ctx, if i == 0 { &nav } else { &still }, &layout)
+                        .is_none()
+                );
             }
             scene.draw(&ctx, &layout);
             menu.draw(&ctx, &layout);
@@ -451,6 +456,7 @@ fn screenshots() {
                     action,
                     synced: false,
                     fresh: true,
+                    ready: true,
                 });
                 app.step(&input, hints, 0);
                 run!(&still, 20);
