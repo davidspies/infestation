@@ -19,7 +19,7 @@ use crate::scenes::Ctx;
 use crate::sprites::{Face, Sprites};
 
 impl LevelScene {
-    /// Asks for a second press before restarting throws away the moves.
+    /// Asks for a second press before starting a fresh, undoable attempt.
     pub(super) fn draw_restart_prompt(&self, ctx: &Ctx, board: BoardLayout, s: f32) {
         let sprites = ctx.sprites;
         let slab = board.slab_rect();
