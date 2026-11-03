@@ -9,17 +9,9 @@ AI Disclaimer: This game uses entirely AI-generated artwork, music and sound eff
 ## Touch controls
 
 The web version supports touchscreens alongside keyboard and controller play.
-Phones show a directional pad with Wait, Undo and Restart buttons; hero
-selection and synchronized movement controls appear in two-hero rooms.
-Instructions follow the input device being used.
-
-The game menu lets you show or hide the on-screen controls, swap their sides,
-and adjust the delay between repeated moves while holding a direction. These
-preferences are saved with the other settings. Sliders can be dragged, menus
-scroll on smaller screens, and room tips appear without moving the puzzle.
-
-See the [touchscreen guide](docs/TOUCHSCREEN.md) for controls, layout behavior,
-implementation details and device checks.
+Use the game menu to show or hide the on-screen controls, swap their sides,
+and adjust the delay between repeated moves. Open Help (?) in the game for
+instructions.
 
 ## Development
 
@@ -35,8 +27,8 @@ implementation details and device checks.
 
 ### Tests
 
-Run the game and puzzle-scenario tests before the browser tests; the Rust build
-prepares the browser runtime used by the shell integration tests:
+Run the Rust tests first to prepare the browser runtime used by the
+JavaScript tests:
 
 ```sh
 cargo test --locked -p infestation -p scenario_tests --lib
@@ -45,7 +37,6 @@ node --test tests/*.test.cjs
 
 On Ubuntu, native tests need `libasound2-dev`, `libudev-dev` and `pkg-config`.
 The browser tests use Node.js's built-in test runner without npm dependencies.
-Physical-device checks are described in the touchscreen guide.
 
 ### Generated assets
 
