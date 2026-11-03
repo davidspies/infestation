@@ -1,0 +1,46 @@
+name: Game, touch controls and room tips
+
+on:
+  pull_request:
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  game:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Linux test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libasound2-dev libudev-dev pkg-config
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Test game state, scenes and original puzzle scenarios
+        run: cargo test --locked -p infestation -p scenario_tests --lib
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      # The game build generates the miniquad keyboard handlers used here.
+      - name: Test browser startup, overlays and input isolation
+        run: node tests/touch-shell.test.cjs
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Test touch input
+        run: node tests/touch-controls.test.cjs
+      - name: Test room tips
+        run: node tests/touch-tips.test.cjs
+      - name: Test adaptive controls
+        run: node tests/touch-state.test.cjs
+      - name: Test input mode detection
+        run: node tests/input-mode.test.cjs
+      - name: Check browser shell syntax
+        run: node --check js/touch-shell.js

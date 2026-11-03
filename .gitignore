@@ -3,5 +3,6 @@
 /js/gl.js
 /js/sapp_jsutils.js
 /target
+/dist/
 /js/audio.js
 __pycache__/
